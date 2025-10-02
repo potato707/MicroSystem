@@ -1,0 +1,1012 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>MicroSystem — HR Management</title>
+<style>
+  /* ---------- Basic layout ---------- */
+  :root{
+    --bg:#f4f6f9; --card:#ffffff; --muted:#7a8793;
+    --accent:#2c3e50; --primary:#0b7dda; --success:#1ea77f; --danger:#e14b4b;
+    --glass: rgba(255,255,255,0.7);
+  }
+  html,body{height:100%;margin:0;font-family:Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;}
+  body{background:linear-gradient(180deg,#f7f9fb 0%, #f2f5f8 100%); color:#222;}
+  .app{max-width:1200px;margin:28px auto;padding:22px;}
+  .topbar{display:flex;align-items:center;gap:18px;margin-bottom:18px}
+  .brand{font-weight:800;color:var(--accent);font-size:20px}
+  nav{margin-left:auto}
+  .navlink{padding:8px 12px;border-radius:8px;color:#fff;background:var(--accent);text-decoration:none;margin-left:6px;opacity:.95}
+  .navlink.inactive{background:transparent;color:var(--accent);border:1px solid rgba(44,62,80,.08)}
+  .layout{display:grid;grid-template-columns:360px 1fr;gap:18px}
+  /* ---------- sidebar ---------- */
+  .card{background:var(--card);border-radius:12px;padding:16px;box-shadow:0 6px 18px rgba(30, 46, 60, 0.06)}
+  .sidebar .section{margin-bottom:12px}
+  .sidebar h4{margin:0 0 8px 0;font-size:14px;color:var(--accent)}
+  .small{font-size:13px;color:var(--muted)}
+  .btn{display:inline-block;padding:10px 14px;border-radius:9px;border:none;background:var(--primary);color:#fff;cursor:pointer;font-weight:600}
+  .btn.ghost{background:transparent;color:var(--accent);border:1px solid rgba(12,40,80,.06)}
+  .btn.warn{background: #ffb020}
+  .btn.danger{background:var(--danger)}
+  .muted{color:var(--muted)}
+  .form-row{display:flex;gap:8px;margin-bottom:8px}
+  .form-row .input{flex:1;padding:9px;border-radius:8px;border:1px solid #e6e9ee}
+  textarea.input{min-height:80px;resize:vertical}
+  label.block{display:block;font-size:13px;margin-bottom:6px;color:#43515a}
+  /* ---------- content ---------- */
+  .content-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .pane{display:none}
+  .pane.active{display:block}
+  .table{width:100%;border-collapse:collapse}
+  .table th,.table td{padding:10px 12px;text-align:left;border-bottom:1px solid #f1f3f6;font-size:14px}
+  .table th{font-size:13px;color:var(--muted);font-weight:700}
+  .row-actions button{margin-right:6px}
+  .console{background:#0f1720;color:#d7e6ef;padding:12px;border-radius:8px;font-family:monospace;font-size:13px;max-height:220px;overflow:auto}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .modal{position:fixed;inset:0;background:rgba(3,7,18,.45);display:flex;align-items:center;justify-content:center;padding:18px;z-index:30}
+  .modal .card{width:720px;max-width:98%; max-height:90vh; overflow-y:auto}
+  .inline{display:inline-block}
+  footer{margin-top:18px;text-align:center;color:var(--muted);font-size:13px}
+  
+  /* New styles for enhanced forms */
+  .section-title{margin:20px 0 10px 0; padding-bottom:8px; border-bottom:1px solid #f1f3f6; color:var(--accent)}
+  .notes-list, .documents-list{margin:10px 0; max-height:200px; overflow-y:auto}
+  .note-item, .document-item{padding:8px; margin:5px 0; background:#f8f9fa; border-radius:6px; border-left:3px solid var(--primary)}
+  .document-item{border-left-color:var(--success)}
+  .add-item-form{background:#f8f9fa; padding:12px; border-radius:6px; margin:10px 0}
+  .readonly-field{background:#f8f9fa; padding:8px; border-radius:4px; border:1px solid #e6e9ee; margin-bottom:8px}
+  
+  @media (max-width:880px){
+    .layout{grid-template-columns:1fr;gap:12px}
+    .sidebar{order:2}
+  }
+</style>
+</head>
+<body style="margin:0;">
+  <div id="loginScreen" style="display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f4f6f9;">
+    <form id="loginForm" style="background:#fff;padding:32px 28px 22px 28px;border-radius:12px;box-shadow:0 6px 24px rgba(30,46,60,0.10);min-width:320px;max-width:90vw;" onsubmit="return doLogin(event)">
+      <h2 style="margin-top:0;margin-bottom:18px;color:#2c3e50;font-weight:700;font-size:22px;text-align:center">Login</h2>
+      <label class="block">Username</label>
+      <input id="login_user" class="input" style="width:100%;margin-bottom:12px" autocomplete="username" />
+      <label class="block">Password</label>
+      <input id="login_pass" class="input" type="password" style="width:100%;margin-bottom:18px" autocomplete="current-password" />
+      <button class="btn" type="submit" style="width:100%">Login</button>
+      <div id="loginError" style="color:#e14b4b;font-size:14px;margin-top:10px;display:none;text-align:center"></div>
+    </form>
+  </div>
+  <div id="appRoot" style="display:none">
+    <div class="app">
+      <div class="topbar">
+        <div class="brand">MicroSystem • HR Management</div>
+        <div class="muted">single-file SPA • vanilla JS</div>
+        <nav>
+          <a href="#" class="navlink" data-route="dashboard">Dashboard</a>
+          <a href="#" class="navlink inactive" data-route="employees">Employees</a>
+          <!-- <a href="#" class="navlink inactive" data-route="documents">Documents</a> -->
+          <!-- <a href="#" class="navlink inactive" data-route="notes">Notes</a> -->
+        </nav>
+      </div>
+
+      <!-- Add user navbar after login -->
+      <div id="userNavbar" style="display:none;align-items:center;gap:16px;justify-content:flex-end;padding:10px 18px 0 18px;">
+        <span style="color:#2c3e50;font-weight:600;">👤 <span id='userNavbarName'></span></span>
+        <button class="btn ghost" onclick="logoutUser()">Logout</button>
+      </div>
+
+      <div class="layout">
+        <!-- Sidebar -->
+        <aside class="sidebar card">
+          <div class="section">
+            <h4>Quick Actions</h4>
+            <button class="btn" onclick="route('employees')">Manage Employees</button>
+            <!-- <button class="btn ghost" onclick="route('documents')">Manage Documents</button> -->
+            <!-- <div style="height:10px"></div> -->
+            <!-- <button class="btn ghost" onclick="route('notes')">Manage Notes</button> -->
+          </div>
+
+          <!-- <div class="section"> -->
+          <!--   <h4>Status</h4> -->
+          <!--   <div class="small">Last API action:</div> -->
+          <!--   <div id="lastAction" class="small muted">— nothing yet —</div> -->
+          <!-- </div> -->
+
+          <!-- <div class="section"> -->
+          <!--   <h4>Help</h4> -->
+          <!--   <div class="small">This single-page UI uses your DRF endpoints at <code>/hr/employees/</code>, <code>/hr/documents/</code>, <code>/hr/notes/</code>.</div> -->
+          <!-- </div> -->
+        </aside>
+
+        <!-- Content -->
+        <main>
+          <!-- Dashboard -->
+          <section id="dashboard" class="pane active card">
+            <div class="content-header">
+              <div>
+                <h3 style="margin:0">Welcome, Admin</h3>
+                <div class="small">Use the left actions or top nav to open modules.</div>
+              </div>
+              <div>
+                <button class="btn" onclick="refreshAll()">Refresh All</button>
+              </div>
+            </div>
+
+            <div class="grid-2" style="margin-top:12px">
+              <div class="card" style="padding:12px">
+                <h4 style="margin:0 0 8px 0">Employees</h4>
+                <!-- <div class="small">Quick list</div> -->
+                <div id="dashEmployees" style="margin-top:10px">Loading…</div>
+              </div>
+
+              <!-- Removed useless recent activity -->
+              <!-- <div class="card" style="padding:12px"> -->
+              <!--   <h4 style="margin:0 0 8px 0">System Status</h4> -->
+              <!--   <div class="console" id="systemStatus">All systems operational.</div> -->
+              <!-- </div> -->
+            </div>
+          </section>
+
+          <!-- Employees -->
+          <section id="employees" class="pane card">
+            <div class="content-header">
+              <div>
+                <h3 style="margin:0">Employees</h3>
+                <div class="small">Create, update, delete and view employees</div>
+              </div>
+              <div>
+                <button class="btn ghost" onclick="getEmployees()">Refresh</button>
+                <button class="btn" onclick="openCreateEmployee()">New Employee</button>
+              </div>
+            </div>
+
+            <!-- list -->
+            <div style="margin-bottom:12px">
+              <table class="table" id="employeesTable">
+                <thead><tr>
+                  <th>Name</th><th>Position</th><th>Department</th><th>Status</th><th>Actions</th>
+                </tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+
+            <!-- details / form area -->
+            <!-- <div class="card" style="padding:12px"> -->
+            <!--   <h4 style="margin-top:0">Employee JSON Console</h4> -->
+            <!--   <div id="employeeConsole" class="console">Select an employee to view details here.</div> -->
+            <!-- </div> -->
+          </section>
+
+          <!-- Documents -->
+          <section id="documents" class="pane card">
+            <div class="content-header">
+              <div>
+                <h3 style="margin:0">Documents</h3>
+                <div class="small">Attach documents to employees</div>
+              </div>
+              <div>
+                <button class="btn ghost" onclick="getDocuments()">Refresh</button>
+                <button class="btn" onclick="openCreateDocument()">New Document</button>
+              </div>
+            </div>
+
+            <table class="table" id="documentsTable">
+              <thead><tr><th>Employee</th><th>Title</th><th>Type</th><th>Uploaded</th><th>Actions</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </section>
+
+          <!-- Notes -->
+          <section id="notes" class="pane card">
+            <div class="content-header">
+              <div>
+                <h3 style="margin:0">Notes</h3>
+                <div class="small">Write internal notes about employees</div>
+              </div>
+              <div>
+                <button class="btn ghost" onclick="getNotes()">Refresh</button>
+                <button class="btn" onclick="openCreateNote()">New Note</button>
+              </div>
+            </div>
+
+            <table class="table" id="notesTable">
+              <thead><tr><th>Employee</th><th>Note</th><th>By</th><th>Date</th><th>Actions</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </section>
+
+          <footer>MicroSystem • HR Management</footer>
+        </main>
+      </div>
+    </div>
+
+    <!-- ---------- Modals (create / edit / confirm) ---------- -->
+    <div id="modalRoot" style="display:none"></div>
+
+<script>
+/* ---------- CONFIG ---------- */
+const API = {
+  employees:'/hr/employees/',
+  documents:'/hr/documents/',
+  notes:'/hr/notes/'
+};
+
+/* ---------- CSRF helper (Django) ---------- */
+function getCookie(name) {
+  const v = document.cookie.match('(^|;)\\s*'+name+'\\s*=\\s*([^;]+)');
+  return v ? v.pop() : '';
+}
+const CSRF = getCookie('csrftoken');
+
+function headersJson() {
+  const h = {
+    'Content-Type':'application/json',
+    'X-Requested-With':'XMLHttpRequest',
+    'X-CSRFToken': CSRF
+  };
+  const token = localStorage.getItem('authToken');
+  if (token){h['Authorization'] = 'Bearer ' + token;}
+  return h;
+}
+
+/* ---------- small UI helpers ---------- */
+function logActivity(msg){
+  //document.getElementById('lastAction').textContent = msg;
+}
+function route(name){
+  document.querySelectorAll('.pane').forEach(p => p.classList.remove('active'));
+  const pane = document.getElementById(name);
+  if (pane) pane.classList.add('active');
+
+  document.querySelectorAll('[data-route]').forEach(a=>{
+    a.classList.toggle('inactive', a.dataset.route !== name);
+  });
+
+  if (name === 'employees') getEmployees();
+  if (name === 'documents') getDocuments();
+  if (name === 'notes') getNotes();
+}
+function refreshAll(){ getEmployees(); getDocuments(); getNotes(); logActivity('Refreshed all modules'); }
+
+/* ---------- Modal builder ---------- */
+function showModal(innerHtml){
+  const root = document.getElementById('modalRoot');
+  root.style.display = 'block';
+  root.innerHTML = `<div class="modal" onclick="if(event.target===this) closeModal()"><div class="card">${innerHtml}</div></div>`;
+}
+function closeModal(){ const root=document.getElementById('modalRoot'); root.style.display='none'; root.innerHTML=''; }
+
+/* ---------- GLOBAL STATE ---------- */
+let currentEmployeeNotes = [];
+let currentEmployeeDocuments = [];
+
+/* ---------- EMPLOYEES CRUD ---------- */
+async function getEmployees(){
+  const res = await fetch(API.employees, {headers: headersJson()});
+  const data = await res.json();
+  const tbody = document.querySelector('#employeesTable tbody');
+  tbody.innerHTML = '';
+  data.forEach(emp=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${escape(emp.name)}</td>
+      <td>${escape(emp.position)}</td>
+      <td>${escape(emp.department)}</td>
+      <td>${escape(emp.status)}</td>
+      <td class="row-actions">
+        <button class="btn ghost" onclick='viewEmployee("${emp.id}")'>View</button>
+        <button class="btn warn" onclick='openEditEmployee("${emp.id}")'>Edit</button>
+        <button class="btn danger" onclick='confirmDelete("employee","${emp.id}")'>Delete</button>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+
+  const dash = document.getElementById('dashEmployees');
+  dash.innerHTML = data.slice(0,6).map(e=>`<div style="padding:6px 0">${escape(e.name)} • <span class="muted small">${escape(e.position)}</span></div>`).join('') || 'No employees';
+  logActivity('Fetched employees ('+data.length+')');
+}
+
+function openCreateEmployee(){
+  showModal(`
+    <div style="padding:8px 18px">
+      <h3>Create Employee</h3>
+      <div class="small">Fill fields and press Create</div>
+      <div style="height:10px"></div>
+      <div>
+        <label class="block">Employee ID</label><input id="e_employee_id" class="input" />
+        <img src="${escapeAttr(employee.profile_picture)}" style="max-width:100px;max-height:100px;border-radius:50%;margin-top:12px" />
+        <label class="block">Profile Picture</label><input id="e_profile_picture" class="input" />
+        <label class="block">Name</label><input id="e_name" class="input" />
+        <label class="block">Position</label><input id="e_position" class="input" />
+        <label class="block">Department</label><input id="e_department" class="input" />
+        <label class="block">Hire Date (YYYY-MM-DD)</label><input id="e_hire_date" class="input" type="date" />
+        <label class="block">Salary</label><input id="e_salary" class="input" type="number" />
+        <label class="block">Status</label>
+        <select id="e_status" class="input">
+          <option value="active">نشط</option>
+          <option value="vacation">في إجازة</option>
+          <option value="resigned">استقالة</option>
+          <option value="terminated">مفصول</option>
+          <option value="probation">فترة تجريبية</option>
+        </select>
+        <label class="block">Phone</label><input id="e_phone" class="input" />
+        <label class="block">Email</label><input id="e_email" class="input" />
+        <label class="block">Address</label><textarea id="e_address" class="input"></textarea>
+        <label class="block">Emergency Contact</label><input id="e_emergency_contact" class="input" />
+      </div>
+      
+      <!-- Notes Section -->
+      <div class="section-title">Notes</div>
+      <div id="createNotesList" class="notes-list"></div>
+      <div class="add-item-form">
+        <label class="block">Add Note</label>
+        <textarea id="newNoteText" class="input" placeholder="Enter note here..."></textarea>
+        <button class="btn ghost" onclick="addNoteToCreateForm()" style="margin-top:8px">Add Note</button>
+      </div>
+      
+      <!-- Documents Section -->
+      <div class="section-title">Documents</div>
+      <div id="createDocumentsList" class="documents-list"></div>
+      <div class="add-item-form">
+        <label class="block">Add Document</label>
+        <input id="newDocTitle" class="input" placeholder="Document title" />
+        <select id="newDocType" class="input" style="margin-top:8px">
+          <option value="certificate">شهادة</option>
+          <option value="contract">عقد</option>
+          <option value="cv">السيرة الذاتية</option>
+          <option value="id">بطاقة هوية</option>
+          <option value="other">أخرى</option>
+        </select>
+        <input id="newDocUrl" class="input" placeholder="File URL" style="margin-top:8px" />
+        <textarea id="newDocDesc" class="input" placeholder="Description" style="margin-top:8px"></textarea>
+        <button class="btn ghost" onclick="addDocumentToCreateForm()" style="margin-top:8px">Add Document</button>
+      </div>
+      
+      <div style="margin-top:12px;text-align:right">
+        <button class="btn ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn" onclick="createEmployee()">Create</button>
+      </div>
+    </div>`);
+    
+  // Reset temporary arrays
+  currentEmployeeNotes = [];
+  currentEmployeeDocuments = [];
+  updateCreateFormLists();
+}
+
+function addNoteToCreateForm() {
+  const noteText = document.getElementById('newNoteText').value.trim();
+  if (noteText) {
+    currentEmployeeNotes.push({
+      note: noteText,
+      created_by: '5310cfab-efe5-4b1e-9241-486a924fab58' // Default user ID - you might want to get this from session
+    });
+    document.getElementById('newNoteText').value = '';
+    updateCreateFormLists();
+  }
+}
+
+function addDocumentToCreateForm() {
+  const title = document.getElementById('newDocTitle').value.trim();
+  const type = document.getElementById('newDocType').value;
+  const url = document.getElementById('newDocUrl').value.trim();
+  
+  if (title && url) {
+    currentEmployeeDocuments.push({
+      title: title,
+      document_type: type,
+      file_url: url,
+      description: document.getElementById('newDocDesc').value.trim()
+    });
+    document.getElementById('newDocTitle').value = '';
+    document.getElementById('newDocUrl').value = '';
+    document.getElementById('newDocDesc').value = '';
+    updateCreateFormLists();
+  }
+}
+
+function updateCreateFormLists() {
+  const notesList = document.getElementById('createNotesList');
+  const docsList = document.getElementById('createDocumentsList');
+  
+  notesList.innerHTML = currentEmployeeNotes.map((note, index) => `
+    <div class="note-item">
+      <div>${escape(note.note)}</div>
+      <button class="btn danger" onclick="removeNoteFromCreateForm(${index})" style="padding:2px 6px; font-size:12px">Remove</button>
+    </div>
+  `).join('') || '<div class="muted small">No notes added</div>';
+  
+  docsList.innerHTML = currentEmployeeDocuments.map((doc, index) => `
+    <div class="document-item">
+      <div><strong>${escape(doc.title)}</strong> (${escape(doc.document_type)})</div>
+      <div class="small">${escape(doc.file_url)}</div>
+      <button class="btn danger" onclick="removeDocumentFromCreateForm(${index})" style="padding:2px 6px; font-size:12px">Remove</button>
+    </div>
+  `).join('') || '<div class="muted small">No documents added</div>';
+}
+
+function removeNoteFromCreateForm(index) {
+  currentEmployeeNotes.splice(index, 1);
+  updateCreateFormLists();
+}
+
+function removeDocumentFromCreateForm(index) {
+  currentEmployeeDocuments.splice(index, 1);
+  updateCreateFormLists();
+}
+
+async function createEmployee(){
+  const payload = {
+    profile_picture: document.getElementById('e_profile_picture').value.trim(),
+    employee_id: document.getElementById('e_employee_id').value.trim(),
+    profile_picture: document.getElementById('e_profile_picture').value.trim(),
+    name: document.getElementById('e_name').value.trim(),
+    position: document.getElementById('e_position').value.trim(),
+    department: document.getElementById('e_department').value.trim(),
+    hire_date: document.getElementById('e_hire_date').value || '',
+    salary: document.getElementById('e_salary').value || 0,
+    status: document.getElementById('e_status').value,
+    phone: document.getElementById('e_phone').value.trim(),
+    email: document.getElementById('e_email').value.trim(),
+    address: document.getElementById('e_address').value.trim(),
+    emergency_contact: document.getElementById('e_emergency_contact').value.trim()
+  };
+  
+  const res = await fetch(API.employees, {
+    method:'POST', headers: headersJson(), body: JSON.stringify(payload)
+  });
+  const employeeData = await res.json();
+  
+  // Create notes and documents for this employee
+  if (employeeData.id) {
+    for (const note of currentEmployeeNotes) {
+      await fetch(API.notes, {
+        method: 'POST',
+        headers: headersJson(),
+        body: JSON.stringify({...note, employee: employeeData.id})
+      });
+    }
+    
+    for (const doc of currentEmployeeDocuments) {
+      await fetch(API.documents, {
+        method: 'POST',
+        headers: headersJson(),
+        body: JSON.stringify({...doc, employee: employeeData.id})
+      });
+    }
+  }
+  
+  logActivity('Created employee with notes/documents');
+  closeModal(); 
+  getEmployees();
+  document.getElementById('employeeConsole').textContent = JSON.stringify(employeeData, null, 2);
+}
+
+async function viewEmployee(id){
+  const [employeeRes, notesRes, docsRes] = await Promise.all([
+    fetch(API.employees + id + '/'),
+    fetch(API.notes + `?employee=${id}`),
+    fetch(API.documents + `?employee=${id}`)
+  ]);
+  
+  const employee = await employeeRes.json();
+  const notes = await notesRes.json();
+  const documents = await docsRes.json();
+  
+  showModal(`
+    <div style="padding:12px">
+      <h3>View Employee: ${escape(employee.name)}</h3>
+      
+      <!-- Employee Details (Read-only) -->
+      <div class="section-title">Employee Information</div>
+      <div class="readonly-field"><strong>Employee ID:</strong> ${escape(employee.employee_id)}</div>
+      <img src="${escapeAttr(employee.profile_picture)}" style="max-width:100px;max-height:100px;border-radius:50%;margin-top:12px" />
+      <div class="readonly-field"><strong>Profile Picture:</strong> ${escape(employee.profile_picture)}</div>
+      <div class="readonly-field"><strong>Name:</strong> ${escape(employee.name)}</div>
+      <div class="readonly-field"><strong>Position:</strong> ${escape(employee.position)}</div>
+      <div class="readonly-field"><strong>Department:</strong> ${escape(employee.department)}</div>
+      <div class="readonly-field"><strong>Status:</strong> ${escape(employee.status)}</div>
+      <div class="readonly-field"><strong>Hire Date:</strong> ${escape(employee.hire_date)}</div>
+      <div class="readonly-field"><strong>Salary:</strong> ${escape(employee.salary)}</div>
+      <div class="readonly-field"><strong>Phone:</strong> ${escape(employee.phone)}</div>
+      <div class="readonly-field"><strong>Email:</strong> ${escape(employee.email)}</div>
+      <div class="readonly-field"><strong>Address:</strong> ${escape(employee.address)}</div>
+      <div class="readonly-field"><strong>Emergency Contact:</strong> ${escape(employee.emergency_contact)}</div>
+      
+      <!-- Notes Section -->
+      <div class="section-title">Notes (${notes.length})</div>
+      <div class="notes-list">
+        ${notes.map(note => `
+          <div class="note-item">
+            <div>${escape(note.note)}</div>
+            <div class="small">By: ${escape(note.created_by)} on ${new Date(note.created_date).toLocaleString()}</div>
+          </div>
+        `).join('') || '<div class="muted small">No notes</div>'}
+      </div>
+      
+      <!-- Documents Section -->
+      <div class="section-title">Documents (${documents.length})</div>
+      <div class="documents-list">
+        ${documents.map(doc => `
+          <div class="document-item">
+            <div><strong>${escape(doc.title)}</strong> (${escape(doc.document_type)})</div>
+            <div class="small">URL: <a href="${escape(doc.file_url)}" target="_blank">${escape(doc.file_url)}</a></div>
+            <div class="small">${escape(doc.description)}</div>
+            <div class="small">Uploaded: ${new Date(doc.upload_date).toLocaleString()}</div>
+          </div>
+        `).join('') || '<div class="muted small">No documents</div>'}
+      </div>
+      
+      <div style="margin-top:12px;text-align:right">
+        <button class="btn ghost" onclick="closeModal()">Close</button>
+      </div>
+    </div>`);
+    
+  logActivity('Viewed employee '+id);
+}
+
+async function openEditEmployee(id){
+  const [employeeRes, notesRes, docsRes] = await Promise.all([
+    fetch(API.employees + id + '/'),
+    fetch(API.notes + `?employee=${id}`),
+    fetch(API.documents + `?employee=${id}`)
+  ]);
+  
+  const employee = await employeeRes.json();
+  const notes = await notesRes.json();
+  const documents = await docsRes.json();
+  
+  currentEmployeeNotes = notes;
+  currentEmployeeDocuments = documents;
+  
+  showModal(`
+    <div style="padding:12px">
+      <h3>Edit Employee: ${escape(employee.name)}</h3>
+      
+      <!-- Employee Details Form -->
+      <div class="section-title">Employee Information</div>
+      <label class="block">Employee ID</label><input id="ed_employee_id" class="input" value="${escapeAttr(employee.employee_id)}"/>
+      <img src="${escapeAttr(employee.profile_picture)}" style="max-width:100px;max-height:100px;border-radius:50%;margin-top:12px" />
+      <label class="block">Profile Picture</label><input id="ed_profile_picture" class="input" value="${escapeAttr(employee.profile_picture)}"/>
+      <label class="block">Name</label><input id="ed_name" class="input" value="${escapeAttr(employee.name)}"/>
+      <label class="block">Position</label><input id="ed_position" class="input" value="${escapeAttr(employee.position)}"/>
+      <label class="block">Department</label><input id="ed_department" class="input" value="${escapeAttr(employee.department)}"/>
+      <label class="block">Status</label>
+      <select id="ed_status" class="input">
+        <option value="active">نشط</option>
+        <option value="vacation">في إجازة</option>
+        <option value="resigned">استقالة</option>
+        <option value="terminated">مفصول</option>
+        <option value="probation">فترة تجريبية</option>
+      </select>
+      <label class="block">Hire Date</label><input id="ed_hire_date" class="input" type="date" value="${escapeAttr(employee.hire_date)}"/>
+      <label class="block">Salary</label><input id="ed_salary" class="input" type="number" value="${escapeAttr(employee.salary)}"/>
+      <label class="block">Phone</label><input id="ed_phone" class="input" value="${escapeAttr(employee.phone)}"/>
+      <label class="block">Email</label><input id="ed_email" class="input" value="${escapeAttr(employee.email)}"/>
+      <label class="block">Address</label><textarea id="ed_address" class="input">${escapeAttr(employee.address)}</textarea>
+      <label class="block">Emergency Contact</label><input id="ed_emergency_contact" class="input" value="${escapeAttr(employee.emergency_contact)}"/>
+      
+      <!-- Notes Section -->
+      <div class="section-title">Notes</div>
+      <div id="editNotesList" class="notes-list"></div>
+      <div class="add-item-form">
+        <label class="block">Add Note</label>
+        <textarea id="editNoteText" class="input" placeholder="Enter note here..."></textarea>
+        <button class="btn ghost" onclick="addNoteToEditForm()" style="margin-top:8px">Add Note</button>
+      </div>
+      
+      <!-- Documents Section -->
+      <div class="section-title">Documents</div>
+      <div id="editDocumentsList" class="documents-list"></div>
+      <div class="add-item-form">
+        <label class="block">Add Document</label>
+        <input id="editDocTitle" class="input" placeholder="Document title" />
+        <select id="editDocType" class="input" style="margin-top:8px">
+          <option value="certificate">شهادة</option>
+          <option value="contract">عقد</option>
+          <option value="cv">السيرة الذاتية</option>
+          <option value="id">بطاقة هوية</option>
+          <option value="other">أخرى</option>
+        </select>
+        <input id="editDocUrl" class="input" placeholder="File URL" style="margin-top:8px" />
+        <textarea id="editDocDesc" class="input" placeholder="Description" style="margin-top:8px"></textarea>
+        <button class="btn ghost" onclick="addDocumentToEditForm('${id}')" style="margin-top:8px">Add Document</button>
+      </div>
+      
+      <div style="margin-top:12px;text-align:right">
+        <button class="btn ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn warn" onclick='saveEditEmployee("${id}")'>Save Changes</button>
+      </div>
+    </div>`);
+    
+  document.getElementById('ed_status').value = employee.status || 'active';
+  updateEditFormLists();
+}
+
+function addNoteToEditForm() {
+  const noteText = document.getElementById('editNoteText').value.trim();
+  if (noteText) {
+    currentEmployeeNotes.push({
+      note: noteText,
+      created_by: '5310cfab-efe5-4b1e-9241-486a924fab58' // Default user ID
+    });
+    document.getElementById('editNoteText').value = '';
+    updateEditFormLists();
+  }
+}
+
+async function addDocumentToEditForm(employeeId) {
+  const title = document.getElementById('editDocTitle').value.trim();
+  const type = document.getElementById('editDocType').value;
+  const url = document.getElementById('editDocUrl').value.trim();
+  
+  if (title && url) {
+    const newDoc = {
+      title: title,
+      document_type: type,
+      file_url: url,
+      description: document.getElementById('editDocDesc').value.trim(),
+      employee: employeeId
+    };
+    
+    // Create document immediately
+    const res = await fetch(API.documents, {
+      method: 'POST',
+      headers: headersJson(),
+      body: JSON.stringify(newDoc)
+    });
+    
+    if (res.ok) {
+      const savedDoc = await res.json();
+      currentEmployeeDocuments.push(savedDoc);
+      document.getElementById('editDocTitle').value = '';
+      document.getElementById('editDocUrl').value = '';
+      document.getElementById('editDocDesc').value = '';
+      updateEditFormLists();
+    }
+  }
+}
+
+function updateEditFormLists() {
+  const notesList = document.getElementById('editNotesList');
+  const docsList = document.getElementById('editDocumentsList');
+  
+  notesList.innerHTML = currentEmployeeNotes.map((note, index) => `
+    <div class="note-item">
+      <div>${escape(note.note)}</div>
+      <div class="small">${note.id ? `Created: ${new Date(note.created_date).toLocaleString()}` : 'Not saved yet'}</div>
+      <button class="btn danger" onclick="removeNoteFromEditForm(${index})" style="padding:2px 6px; font-size:12px">Remove</button>
+    </div>
+  `).join('') || '<div class="muted small">No notes</div>';
+  
+  docsList.innerHTML = currentEmployeeDocuments.map((doc, index) => `
+    <div class="document-item">
+      <div><strong>${escape(doc.title)}</strong> (${escape(doc.document_type)})</div>
+      <div class="small">${escape(doc.file_url)}</div>
+      <button class="btn danger" onclick="removeDocumentFromEditForm(${index})" style="padding:2px 6px; font-size:12px">Remove</button>
+    </div>
+  `).join('') || '<div class="muted small">No documents</div>';
+}
+
+function removeNoteFromEditForm(index) {
+  const note = currentEmployeeNotes[index];
+  if (note.id) {
+    // Delete from server if it exists
+    fetch(API.notes + note.id + '/', {method: 'DELETE', headers: headersJson()});
+  }
+  currentEmployeeNotes.splice(index, 1);
+  updateEditFormLists();
+}
+
+function removeDocumentFromEditForm(index) {
+  const doc = currentEmployeeDocuments[index];
+  if (doc.id) {
+    // Delete from server if it exists
+    fetch(API.documents + doc.id + '/', {method: 'DELETE', headers: headersJson()});
+  }
+  currentEmployeeDocuments.splice(index, 1);
+  updateEditFormLists();
+}
+
+async function saveEditEmployee(id){
+  const payload = {
+    profile_picture: document.getElementById('ed_profile_picture').value.trim(),
+    employee_id: document.getElementById('ed_employee_id').value.trim(),
+    name: document.getElementById('ed_name').value.trim(),
+    position: document.getElementById('ed_position').value.trim(),
+    department: document.getElementById('ed_department').value.trim(),
+    status: document.getElementById('ed_status').value,
+    hire_date: document.getElementById('ed_hire_date').value,
+    salary: document.getElementById('ed_salary').value,
+    phone: document.getElementById('ed_phone').value.trim(),
+    email: document.getElementById('ed_email').value.trim(),
+    address: document.getElementById('ed_address').value.trim(),
+    emergency_contact: document.getElementById('ed_emergency_contact').value.trim()
+  };
+  
+  // Update employee
+  const res = await fetch(API.employees + id + '/', {
+    method:'PATCH', 
+    headers: headersJson(), 
+    body: JSON.stringify(payload)
+  });
+  
+  // Create new notes
+  for (const note of currentEmployeeNotes) {
+    if (!note.id) {
+      await fetch(API.notes, {
+        method: 'POST',
+        headers: headersJson(),
+        body: JSON.stringify({...note, employee: id})
+      });
+    }
+  }
+  
+  const data = await res.json();
+  logActivity('Updated employee '+id);
+  closeModal(); 
+  getEmployees();
+  document.getElementById('employeeConsole').textContent = JSON.stringify(data, null, 2);
+}
+
+// ... rest of the code remains the same (documents, notes CRUD, utility functions) ...
+
+async function confirmDelete(type, id){
+  showModal(`
+    <div style="padding:18px">
+      <h3>Confirm delete</h3>
+      <div class="small">Are you sure you want to permanently delete this ${type}?</div>
+      <div style="height:12px"></div>
+      <div style="text-align:right">
+        <button class="btn ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn danger" onclick='doDelete("${type}","${id}")'>Delete</button>
+      </div>
+    </div>
+  `);
+}
+
+async function doDelete(type, id){
+  closeModal();
+  const url = (type==='employee')? API.employees+id+'/' : (type==='document')? API.documents+id+'/' : API.notes+id+'/';
+  const res = await fetch(url, {method:'DELETE', headers: headersJson()});
+  if (res.status === 204) {
+    logActivity('Deleted '+type+' '+id);
+  } else {
+    logActivity('Delete failed '+res.status);
+  }
+  getEmployees(); getDocuments(); getNotes();
+}
+
+/* ---------- DOCUMENTS CRUD ---------- */
+async function getDocuments(){
+  const res = await fetch(API.documents, {headers: headersJson()});
+  const data = await res.json();
+  const tbody = document.querySelector('#documentsTable tbody');
+  tbody.innerHTML = '';
+  data.forEach(doc=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${doc.employee ? escape(doc.employee_name || doc.employee) : '-'}</td>
+      <td>${escape(doc.title)}</td>
+      <td>${escape(doc.document_type)}</td>
+      <td>${new Date(doc.upload_date).toLocaleString()}</td>
+      <td class="row-actions">
+        <button class="btn ghost" onclick='viewDocument("${doc.id}")'>View</button>
+        <button class="btn warn" onclick='openEditDocument("${doc.id}")'>Edit</button>
+        <button class="btn danger" onclick='confirmDelete("document","${doc.id}")'>Delete</button>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+  logActivity('Fetched documents ('+data.length+')');
+}
+
+function openCreateDocument(){
+  showModal(`
+    <div style="padding:12px">
+      <h3>Create Document</h3>
+      <label class="block">Employee (id)</label><input id="d_employee" class="input" />
+      <label class="block">Type (certificate/contract/cv/id/other)</label><input id="d_type" class="input" />
+      <label class="block">Title</label><input id="d_title" class="input" />
+      <label class="block">File URL</label><input id="d_file" class="input" />
+      <label class="block">Description</label><textarea id="d_desc" class="input"></textarea>
+      <div style="margin-top:12px;text-align:right">
+        <button class="btn ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn" onclick="createDocument()">Create</button>
+      </div>
+    </div>`);
+}
+
+async function createDocument(){
+  const payload = {
+    employee: document.getElementById('d_employee').value.trim(),
+    document_type: document.getElementById('d_type').value.trim(),
+    title: document.getElementById('d_title').value.trim(),
+    file_url: document.getElementById('d_file').value.trim(),
+    description: document.getElementById('d_desc').value.trim()
+  };
+  const r = await fetch(API.documents, {method:'POST', headers: headersJson(), body: JSON.stringify(payload)});
+  const data = await r.json();
+  logActivity('Created document '+(data.id || r.status));
+  closeModal(); getDocuments();
+}
+
+async function openEditDocument(id){
+  const r = await fetch(API.documents+id+'/'); const doc = await r.json();
+  showModal(`
+    <div style="padding:12px">
+      <h3>Edit Document</h3>
+      <label class="block">Title</label><input id="edoc_title" class="input" value="${escapeAttr(doc.title)}" />
+      <label class="block">File URL</label><input id="edoc_file" class="input" value="${escapeAttr(doc.file_url)}" />
+      <label class="block">Description</label><textarea id="edoc_desc" class="input">${escapeAttr(doc.description)}</textarea>
+      <div style="margin-top:10px;text-align:right">
+        <button class="btn ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn warn" onclick='saveEditDocument("${id}")'>Save</button>
+      </div>
+    </div>`);
+}
+
+async function saveEditDocument(id){
+  const payload = {
+    title: document.getElementById('edoc_title').value.trim(),
+    file_url: document.getElementById('edoc_file').value.trim(),
+    description: document.getElementById('edoc_desc').value.trim()
+  };
+  const r = await fetch(API.documents+id+'/', {method:'PATCH', headers: headersJson(), body: JSON.stringify(payload)});
+  const data = await r.json();
+  logActivity('Updated document '+id);
+  closeModal(); getDocuments();
+}
+
+async function viewDocument(id){
+  const r = await fetch(API.documents+id+'/'); const data = await r.json();
+  showModal(`<div style="padding:12px"><h3>Document</h3><pre class="console">${JSON.stringify(data,null,2)}</pre><div style="text-align:right"><button class="btn ghost" onclick="closeModal()">Close</button></div></div>`);
+}
+
+/* ---------- NOTES CRUD ---------- */
+async function getNotes(){
+  const res = await fetch(API.notes, {headers: headersJson()});
+  const data = await res.json();
+  const tbody = document.querySelector('#notesTable tbody');
+  tbody.innerHTML = '';
+  data.forEach(nt=>{
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${escape(nt.employee_name || nt.employee)}</td>
+      <td>${escape(nt.note)}</td>
+      <td>${escape(nt.created_by)}</td>
+      <td>${new Date(nt.created_date).toLocaleString()}</td>
+      <td class="row-actions">
+        <button class="btn ghost" onclick='viewNote("${nt.id}")'>View</button>
+        <button class="btn danger" onclick='confirmDelete("note","${nt.id}")'>Delete</button>
+      </td>`;
+    tbody.appendChild(tr);
+  });
+  logActivity('Fetched notes ('+data.length+')');
+}
+
+function openCreateNote(){
+  showModal(`
+    <div style="padding:12px">
+      <h3>Create Note</h3>
+      <label class="block">Employee (id)</label><input id="n_employee" class="input" />
+      <label class="block">Note</label><textarea id="n_note" class="input"></textarea>
+      <label class="block">Created by (user id)</label><input id="n_by" class="input" />
+      <div style="margin-top:12px;text-align:right">
+        <button class="btn ghost" onclick="closeModal()">Cancel</button>
+        <button class="btn" onclick="createNote()">Create</button>
+      </div>
+    </div>`);
+}
+
+async function createNote(){
+  const payload = {
+    employee: document.getElementById('n_employee').value.trim(),
+    note: document.getElementById('n_note').value.trim(),
+    created_by: document.getElementById('n_by').value.trim()
+  };
+  const r = await fetch(API.notes, {method:'POST', headers: headersJson(), body: JSON.stringify(payload)});
+  const data = await r.json();
+  logActivity('Created note '+(data.id||r.status));
+  closeModal(); getNotes();
+}
+
+async function viewNote(id){
+  const r = await fetch(API.notes+id+'/'); const data = await r.json();
+  showModal(`<div style="padding:12px"><h3>Note</h3><pre class="console">${JSON.stringify(data,null,2)}</pre><div style="text-align:right"><button class="btn ghost" onclick="closeModal()">Close</button></div></div>`);
+}
+
+/* ---------- UTIL ---------- */
+function escape(s){ if(s===null||s===undefined) return ''; return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'); }
+function escapeAttr(s){ return escape(s).replaceAll('"','&quot;').replaceAll("'",'&#39;'); }
+
+/* ---------- init ---------- */
+document.addEventListener('click', (e)=>{
+  if (e.target.matches('[data-route]')) {
+    route(e.target.dataset.route);
+    e.preventDefault();
+  }
+});
+document.querySelectorAll('[data-route]').forEach(a=>a.addEventListener('click', e=>{
+  const r = a.dataset.route; route(r);
+}));
+
+// initial fetches
+getEmployees();
+getDocuments();
+getNotes();
+logActivity('App loaded');
+
+function showUserNavbar(username) {
+  let userNav = document.getElementById('userNavbar');
+  if (!userNav) {
+    userNav = document.createElement('div');
+    userNav.id = 'userNavbar';
+    userNav.style = 'display:flex;align-items:center;gap:16px;justify-content:flex-end;padding:10px 18px 0 18px;';
+    userNav.innerHTML = `
+      <span style="color:#2c3e50;font-weight:600;">👤 <span id='userNavbarName'></span></span>
+      <button class="btn ghost" onclick="logoutUser()">Logout</button>
+    `;
+    document.querySelector('.topbar').appendChild(userNav);
+  }
+  document.getElementById('userNavbarName').textContent = username;
+  userNav.style.display = '';
+}
+
+function logoutUser() {
+  localStorage.removeItem('authToken');
+  document.getElementById('appRoot').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+  let userNav = document.getElementById('userNavbar');
+  if (userNav) userNav.style.display = 'none';
+}
+
+// Patch doLogin to show user navbar
+async function doLogin(e) {
+  if (e) e.preventDefault();
+  const username = document.getElementById('login_user').value.trim();
+  const password = document.getElementById('login_pass').value;
+  const errorDiv = document.getElementById('loginError');
+  errorDiv.style.display = 'none';
+  const res = await fetch('/api/token/', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
+    body: JSON.stringify({username, password})
+  });
+  if (res.ok) {
+    const data = await res.json();
+    localStorage.setItem('authToken', data.access);
+    localStorage.setItem('lastUsername', username);
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('appRoot').style.display = '';
+    showUserNavbar(username);
+    getEmployees();
+    getDocuments();
+    getNotes();
+    logActivity('Logged in as ' + username);
+  } else {
+    errorDiv.textContent = 'Login failed. Please check your credentials.';
+    errorDiv.style.display = 'block';
+  }
+  return false;
+}
+
+// Hide app UI by default
+window.addEventListener('DOMContentLoaded', () => {
+  const token = localStorage.getItem('authToken');
+  if (token) {
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('appRoot').style.display = 'flex';
+    // Show user navbar with last username if available
+    let lastUser = localStorage.getItem('lastUsername') || 'User';
+    showUserNavbar(lastUser);
+    getEmployees();
+    getDocuments();
+    getNotes();
+    logActivity('App loaded');
+  } else {
+    document.getElementById('appRoot').style.display = 'none';
+    document.getElementById('loginScreen').style.display = 'flex';
+  }
+});
+</script>
+</body>
+</html>
