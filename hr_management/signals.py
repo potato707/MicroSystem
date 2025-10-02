@@ -30,7 +30,7 @@ import decimal
 
 @receiver(pre_save, sender=EmployeeAttendance)
 def add_daily_salary_to_wallet(sender, instance, **kwargs):
-    if not instance.check_out:
+    if not instance.check_out and not instance.status == "on_leave":
         return  # Haven't checked out yet
 
     employee = instance.employee
