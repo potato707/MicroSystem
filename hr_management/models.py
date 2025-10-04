@@ -3,7 +3,7 @@ import datetime
 from django.conf import settings
 import uuid
 from django.contrib.auth.models import AbstractUser
-# from django.utils import timezone
+from django.utils import timezone
 from utils.timezone_utils import system_now
 import os
 
@@ -291,13 +291,28 @@ class Task(models.Model):
     @property
     def is_overdue(self):
         """Check if task is overdue (not completed by end of day)"""
-        from datetime import datetime, time
-        if self.status == 'done' or self.date > datetime.now().date():
+        from datetime import time
+        if self.status == 'done' or self.date > system_now().date():
             return False
         
-        # Consider task overdue if it's past 6 PM on the task date
-        end_of_day = datetime.combine(self.date, time(18, 0))
-        return datetime.now() > end_of_day
+        # Only consider tasks overdue if they're from previous days
+        # or if they were created before 6 PM on the task date and it's now past 6 PM
+        current_time = system_now()
+        task_date = self.date
+        
+        # If task is from a previous day and not completed, it's overdue
+        if task_date < current_time.date():
+            return True
+            
+        # If task is from today, only overdue if created before 6 PM and it's now past 6 PM
+        if task_date == current_time.date():
+            # Create timezone-aware end_of_day datetime
+            naive_end_of_day = datetime.datetime.combine(task_date, time(18, 0))
+            end_of_day = timezone.make_aware(naive_end_of_day) if timezone.is_naive(naive_end_of_day) else naive_end_of_day
+            # Only overdue if task was created before 6 PM and it's now past 6 PM
+            return self.created_at < end_of_day and current_time > end_of_day
+            
+        return False
     
     @property
     def time_spent(self):
