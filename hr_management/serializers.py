@@ -1,7 +1,7 @@
 from rest_framework import serializers
 import datetime
 import calendar
-from .models import Employee, EmployeeDocument, EmployeeNote, EmployeeAttendance, User, LeaveRequest, Complaint, ComplaintReply, ComplaintAttachment, EmployeeDocument, Wallet, WalletTransaction, ReimbursementRequest, ReimbursementAttachment
+from .models import Employee, EmployeeDocument, EmployeeNote, EmployeeAttendance, User, LeaveRequest, Complaint, ComplaintReply, ComplaintAttachment, EmployeeDocument, Wallet, WalletTransaction, ReimbursementRequest, ReimbursementAttachment, Task, TaskReport, TaskComment
 from utils.timezone_utils import system_now
 
 
@@ -192,15 +192,16 @@ class ReimbursementRequestSerializer(serializers.ModelSerializer):
     attachment_links = serializers.ListField(
         child=serializers.URLField(), write_only=True, required=False
     )
+    employee_name = serializers.CharField(source='employee.name', read_only=True)
 
     class Meta:
         model = ReimbursementRequest
         fields = [
-            "id", "employee", "amount", "description",
+            "id", "employee", "employee_name", "amount", "description",
             "status", "admin_comment", "created_at", "updated_at",
             "attachments", "attachment_links"
         ]
-        read_only_fields = ["status", "admin_comment", "created_at", "updated_at", "employee"]
+        read_only_fields = ["status", "admin_comment", "created_at", "updated_at", "employee", "employee_name"]
 
     def create(self, validated_data):
         attachment_links = validated_data.pop("attachment_links", [])
@@ -222,4 +223,138 @@ class ReimbursementReviewSerializer(serializers.ModelSerializer):
             "status": {"required": True},
             "review_comment": {"required": False},
         }
+
+
+class TaskCommentSerializer(serializers.ModelSerializer):
+    author_name = serializers.CharField(source='author.name', read_only=True)
+    
+    class Meta:
+        model = TaskComment
+        fields = ['id', 'comment', 'author', 'author_name', 'created_at', 'is_manager_note']
+        read_only_fields = ['author', 'created_at']
+
+
+class TaskCreateSerializer(serializers.ModelSerializer):
+    """Serializer for creating tasks with role-based employee field handling"""
+    
+    class Meta:
+        model = Task
+        fields = [
+            'title', 'description', 'status', 'priority', 'date', 
+            'start_date', 'end_date', 'estimated_minutes', 'notes'
+        ]
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request = self.context.get('request')
+        
+        # Include employee field for admins, but make it optional if they have an employee profile
+        if request and request.user.role == 'admin':
+            # Check if admin has an employee profile
+            has_employee_profile = hasattr(request.user, 'employee')
+            self.fields['employee'] = serializers.PrimaryKeyRelatedField(
+                queryset=Employee.objects.all(), 
+                required=not has_employee_profile,  # Optional if admin has employee profile
+                allow_null=True
+            )
+    
+    def validate(self, data):
+        """Custom validation that handles employee field based on user role"""
+        request = self.context.get('request')
+        if request and request.user.role == 'admin':
+            # If admin doesn't have employee profile, employee field is required
+            if not hasattr(request.user, 'employee'):
+                if 'employee' not in data or data['employee'] is None:
+                    raise serializers.ValidationError({
+                        'employee': 'Employee field is required for admin task creation'
+                    })
+        # For employees and admins with employee profiles, employee field will be set by perform_create
+        return data
+
+
+class TaskSerializer(serializers.ModelSerializer):
+    employee_name = serializers.CharField(source='employee.name', read_only=True)
+    created_by_name = serializers.CharField(source='created_by.name', read_only=True)
+    comments = TaskCommentSerializer(many=True, read_only=True)
+    is_overdue = serializers.ReadOnlyField()
+    is_paused = serializers.ReadOnlyField()
+    time_spent = serializers.ReadOnlyField()
+    
+    class Meta:
+        model = Task
+        fields = [
+            'id', 'employee', 'employee_name', 'title', 'description', 'status', 
+            'priority', 'date', 'start_date', 'end_date', 'created_by', 'created_by_name', 'assigned_by_manager',
+            'estimated_minutes', 'actual_minutes', 'started_at', 'completed_at',
+            'paused_at', 'total_pause_time', 'is_paused',
+            'created_at', 'updated_at', 'notes', 'comments', 'is_overdue', 'time_spent'
+        ]
+        read_only_fields = ['created_by', 'created_at', 'updated_at', 'time_spent', 'is_overdue', 'is_paused', 'paused_at', 'total_pause_time']
+
+
+class TaskUpdateSerializer(serializers.ModelSerializer):
+    """Serializer for updating task status and progress"""
+    
+    class Meta:
+        model = Task
+        fields = ['status', 'notes', 'actual_minutes', 'started_at', 'completed_at']
+    
+    def update(self, instance, validated_data):
+        # Auto-set timestamps based on status changes
+        new_status = validated_data.get('status', instance.status)
+        
+        if new_status == 'doing' and instance.status == 'to_do' and not instance.started_at:
+            validated_data['started_at'] = system_now()
+        
+        if new_status == 'done' and instance.status != 'done' and not instance.completed_at:
+            validated_data['completed_at'] = system_now()
+            
+        return super().update(instance, validated_data)
+
+
+class TaskReportSerializer(serializers.ModelSerializer):
+    employee_name = serializers.CharField(source='employee.name', read_only=True)
+    tasks = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = TaskReport
+        fields = [
+            'id', 'employee', 'employee_name', 'date', 'total_tasks', 'completed_tasks',
+            'in_progress_tasks', 'not_completed_tasks', 'completion_rate', 'summary_notes',
+            'challenges_faced', 'achievements', 'tomorrow_priorities', 'submitted_at',
+            'reviewed_by_manager', 'manager_feedback', 'manager_rating', 'tasks'
+        ]
+        read_only_fields = ['completion_rate', 'submitted_at']
+    
+    def get_tasks(self, obj):
+        """Get tasks for the report date"""
+        tasks = Task.objects.filter(employee=obj.employee, date=obj.date)
+        return TaskSerializer(tasks, many=True, context=self.context).data
+    
+    def create(self, validated_data):
+        # Auto-calculate task counts from actual tasks
+        employee = validated_data['employee']
+        date = validated_data['date']
+        
+        tasks = Task.objects.filter(employee=employee, date=date)
+        
+        validated_data['total_tasks'] = tasks.count()
+        validated_data['completed_tasks'] = tasks.filter(status='done').count()
+        validated_data['in_progress_tasks'] = tasks.filter(status='doing').count()
+        validated_data['not_completed_tasks'] = tasks.filter(status='to_do').count()
+        
+        return super().create(validated_data)
+
+
+class ManagerTaskDashboardSerializer(serializers.Serializer):
+    """Serializer for manager dashboard data"""
+    employee_id = serializers.UUIDField()
+    employee_name = serializers.CharField()
+    total_tasks = serializers.IntegerField()
+    completed_tasks = serializers.IntegerField()
+    in_progress_tasks = serializers.IntegerField()
+    not_completed_tasks = serializers.IntegerField()
+    completion_rate = serializers.DecimalField(max_digits=5, decimal_places=2)
+    overdue_tasks = serializers.IntegerField()
+    tasks = TaskSerializer(many=True)
 

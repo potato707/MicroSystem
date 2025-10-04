@@ -241,3 +241,135 @@ class ReimbursementAttachment(models.Model):
     reimbursement = models.ForeignKey(ReimbursementRequest, on_delete=models.CASCADE, related_name="attachments")
     file_url = models.URLField(verbose_name="رابط الملف")
     uploaded_at = models.DateTimeField(auto_now_add=True)
+
+
+class Task(models.Model):
+    """Daily TO-DO tasks for employees"""
+    STATUS_CHOICES = [
+        ('to_do', 'To Do'),
+        ('doing', 'Doing'),
+        ('done', 'Done'),
+    ]
+    
+    PRIORITY_CHOICES = [
+        ('low', 'Low'),
+        ('medium', 'Medium'),
+        ('high', 'High'),
+        ('urgent', 'Urgent'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='tasks')
+    title = models.CharField(max_length=200, verbose_name='Task Title')
+    description = models.TextField(blank=True, null=True, verbose_name='Task Description')
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default='to_do')
+    priority = models.CharField(max_length=10, choices=PRIORITY_CHOICES, default='medium')
+    date = models.DateField(default=datetime.date.today, verbose_name='Task Date')
+    start_date = models.DateField(null=True, blank=True, verbose_name='Start Date')
+    end_date = models.DateField(null=True, blank=True, verbose_name='Deadline')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_tasks')
+    assigned_by_manager = models.BooleanField(default=False, verbose_name='Assigned by Manager')
+    estimated_minutes = models.IntegerField(default=30, verbose_name='Estimated Time (minutes)')
+    actual_minutes = models.IntegerField(null=True, blank=True, verbose_name='Actual Time (minutes)')
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    paused_at = models.DateTimeField(null=True, blank=True, verbose_name='Paused At')
+    total_pause_time = models.IntegerField(default=0, verbose_name='Total Pause Time (minutes)')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    notes = models.TextField(blank=True, null=True, verbose_name='Task Notes')
+    
+    class Meta:
+        verbose_name = 'Task'
+        verbose_name_plural = 'Tasks'
+        ordering = ['-priority', 'created_at']
+        # unique_together = ['employee', 'title', 'date']  # Prevent duplicate tasks on same day
+    
+    def __str__(self):
+        return f"{self.employee.name} - {self.title} ({self.date})"
+    
+    @property
+    def is_overdue(self):
+        """Check if task is overdue (not completed by end of day)"""
+        from datetime import datetime, time
+        if self.status == 'done' or self.date > datetime.now().date():
+            return False
+        
+        # Consider task overdue if it's past 6 PM on the task date
+        end_of_day = datetime.combine(self.date, time(18, 0))
+        return datetime.now() > end_of_day
+    
+    @property
+    def time_spent(self):
+        """Calculate time spent on task (excluding pause time)"""
+        if not self.started_at:
+            return 0
+        
+        end_time = self.completed_at or system_now()
+        total_time = (end_time - self.started_at).total_seconds() / 60
+        
+        # Subtract total pause time
+        active_time = total_time - self.total_pause_time
+        
+        # If currently paused, subtract current pause duration
+        if self.paused_at:
+            current_pause = (system_now() - self.paused_at).total_seconds() / 60
+            active_time -= current_pause
+            
+        return max(0, active_time)  # Ensure non-negative
+    
+    @property
+    def is_paused(self):
+        """Check if task is currently paused"""
+        return self.paused_at is not None and self.status == 'doing'
+
+
+class TaskReport(models.Model):
+    """Daily task report submitted by employees"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='task_reports')
+    date = models.DateField(default=datetime.date.today)
+    total_tasks = models.IntegerField(default=0)
+    completed_tasks = models.IntegerField(default=0)
+    in_progress_tasks = models.IntegerField(default=0)
+    not_completed_tasks = models.IntegerField(default=0)
+    completion_rate = models.DecimalField(max_digits=5, decimal_places=2, default=0.0)  # Percentage
+    summary_notes = models.TextField(blank=True, null=True, verbose_name='Daily Summary')
+    challenges_faced = models.TextField(blank=True, null=True, verbose_name='Challenges/Issues')
+    achievements = models.TextField(blank=True, null=True, verbose_name='Key Achievements')
+    tomorrow_priorities = models.TextField(blank=True, null=True, verbose_name='Tomorrow\'s Priorities')
+    submitted_at = models.DateTimeField(auto_now_add=True)
+    reviewed_by_manager = models.BooleanField(default=False)
+    manager_feedback = models.TextField(blank=True, null=True, verbose_name='Manager Feedback')
+    manager_rating = models.IntegerField(null=True, blank=True, choices=[(i, i) for i in range(1, 6)])  # 1-5 rating
+    
+    class Meta:
+        verbose_name = 'Task Report'
+        verbose_name_plural = 'Task Reports'
+        unique_together = ['employee', 'date']  # One report per employee per day
+        ordering = ['-date', 'employee__name']
+    
+    def __str__(self):
+        return f"{self.employee.name} - Report for {self.date}"
+    
+    def save(self, *args, **kwargs):
+        # Auto-calculate completion rate
+        if self.total_tasks > 0:
+            self.completion_rate = (self.completed_tasks / self.total_tasks) * 100
+        super().save(*args, **kwargs)
+
+
+class TaskComment(models.Model):
+    """Comments on tasks for collaboration"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='comments')
+    author = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    comment = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_manager_note = models.BooleanField(default=False)
+    
+    class Meta:
+        ordering = ['created_at']
+    
+    def __str__(self):
+        return f"Comment by {self.author.name} on {self.task.title}"
