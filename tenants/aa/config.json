@@ -1,0 +1,27 @@
+{
+  "name": "aa",
+  "domain": "aa.myapp.com",
+  "subdomain": "aa",
+  "modules": {
+    "attendance": true,
+    "complaints": true,
+    "employees": true,
+    "notifications": true,
+    "reports": true,
+    "shifts": true,
+    "tasks": true,
+    "wallet": false
+  },
+  "theme": {
+    "primary": "#3498db",
+    "secondary": "#2ecc71"
+  },
+  "logo_url": null,
+  "contact": {
+    "email": null,
+    "phone": null
+  },
+  "is_active": true,
+  "created_at": "2025-10-24T14:10:01.082339+00:00",
+  "updated_at": "2025-10-24T14:10:07.484376+00:00"
+}

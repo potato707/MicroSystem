@@ -169,12 +169,12 @@ class TenantService:
                 tenant.logo = tenant_data['logo']
                 tenant.save()
             
-            # Create tenant modules (use get_or_create to avoid duplicates)
+            # Create tenant modules (use update_or_create to handle signal-created modules)
             module_definitions = ModuleDefinition.objects.all()
             for module_def in module_definitions:
                 is_enabled = module_def.module_key in module_keys or module_def.is_core
                 
-                TenantModule.objects.get_or_create(
+                TenantModule.objects.update_or_create(
                     tenant=tenant,
                     module_key=module_def.module_key,
                     defaults={

@@ -248,6 +248,74 @@
             color: #764ba2;
         }
 
+        .modules-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 15px;
+        }
+
+        .module-checkbox {
+            display: flex;
+            align-items: flex-start;
+            padding: 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: white;
+        }
+
+        .module-checkbox:hover {
+            border-color: #667eea;
+            background: #f8f9ff;
+        }
+
+        .module-checkbox input[type="checkbox"] {
+            margin-left: 12px;
+            margin-top: 2px;
+            cursor: pointer;
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+
+        .module-checkbox input[type="checkbox"]:disabled {
+            cursor: not-allowed;
+        }
+
+        .module-checkbox.core-module {
+            background: #f0f4ff;
+            border-color: #667eea;
+        }
+
+        .module-info {
+            flex: 1;
+        }
+
+        .module-name {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+            font-size: 14px;
+        }
+
+        .module-description {
+            font-size: 12px;
+            color: #666;
+            line-height: 1.4;
+        }
+
+        .core-badge {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            font-size: 10px;
+            padding: 2px 8px;
+            border-radius: 4px;
+            margin-top: 5px;
+            font-weight: 600;
+        }
+
         @media (max-width: 600px) {
             .form-grid {
                 grid-template-columns: 1fr;
@@ -255,6 +323,10 @@
             
             .container {
                 padding: 30px 20px;
+            }
+
+            .modules-grid {
+                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -335,6 +407,33 @@
                 </div>
             </div>
 
+            <div class="form-group">
+                <label style="margin-bottom: 15px;">
+                    الوحدات المتاحة (Modules)
+                    <span class="required">*</span>
+                </label>
+                <div class="modules-grid">
+                    {% for module in modules %}
+                    <label class="module-checkbox {% if module.is_core %}core-module{% endif %}">
+                        <input type="checkbox" 
+                               name="modules" 
+                               value="{{ module.module_key }}" 
+                               {% if module.is_core %}checked disabled{% endif %}>
+                        <div class="module-info">
+                            <div class="module-name">{{ module.module_name }}</div>
+                            <div class="module-description">{{ module.description }}</div>
+                            {% if module.is_core %}
+                            <span class="core-badge">أساسي</span>
+                            {% endif %}
+                        </div>
+                    </label>
+                    {% endfor %}
+                </div>
+                <small style="color: #666; font-size: 12px; display: block; margin-top: 10px;">
+                    الوحدات الأساسية مفعلة تلقائياً
+                </small>
+            </div>
+
             <button type="submit" class="btn" id="submitBtn">
                 إنشاء العميل الآن
             </button>
@@ -372,6 +471,10 @@
         form.addEventListener('submit', async (e) => {
             e.preventDefault();
             
+            // Collect selected modules
+            const moduleCheckboxes = document.querySelectorAll('input[name="modules"]:checked');
+            const selectedModules = Array.from(moduleCheckboxes).map(cb => cb.value);
+            
             // Get form data
             const formData = {
                 name: document.getElementById('tenant_name').value,
@@ -379,7 +482,8 @@
                 admin_username: document.getElementById('admin_username').value,
                 admin_email: document.getElementById('admin_email').value,
                 admin_password: document.getElementById('admin_password').value,
-                admin_name: document.getElementById('admin_name').value || document.getElementById('admin_username').value
+                admin_name: document.getElementById('admin_name').value || document.getElementById('admin_username').value,
+                module_keys: selectedModules  // Use 'module_keys' instead of 'modules'
             };
 
             // Show loader
