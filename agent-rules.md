@@ -1,0 +1,3 @@
+- Don't create any .md files unless requested
+- Avoid code duplications as much as you can
+- Try your best to follow clean code and solid principles

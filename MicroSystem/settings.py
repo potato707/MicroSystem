@@ -138,7 +138,8 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     # Tenant system middlewares
     'hr_management.tenant_middleware.TenantMiddleware',
-    # 'hr_management.tenant_middleware.TenantModuleAccessMiddleware',  # Disabled temporarily - needs dynamic DB config
+    # Module access control - checks if tenant has enabled the requested module
+    'hr_management.module_access_middleware.ModuleAccessMiddleware',
 ]
 
 ROOT_URLCONF = 'MicroSystem.urls'

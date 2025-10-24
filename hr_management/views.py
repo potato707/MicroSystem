@@ -13,7 +13,7 @@ from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework import status as rest_status  # Explicit import to avoid conflicts
-from .custom_permissions import IsEmployer, IsAdminOrComplaintAdmin
+from .custom_permissions import IsEmployer, IsAdminOrComplaintAdmin, HasModuleAccess
 from .models import (
     Employee, EmployeeDocument, EmployeeNote, EmployeeAttendance, WorkShift, 
     LeaveRequest, Complaint, ComplaintReply, ComplaintAttachment, Wallet, WalletTransaction, 
@@ -70,14 +70,16 @@ class StandardResultsSetPagination(PageNumberPagination):
     max_page_size = 100
 
 class EmployeeViewSet(viewsets.ModelViewSet):
+    """Employee management - requires 'employees' module"""
+    module_key = 'employees'  # Require employees module access
     queryset = Employee.objects.all()
     serializer_class = EmployeeSerializer
     pagination_class = StandardResultsSetPagination
 
     def get_permissions(self):
         if self.action in ['create', 'update', 'partial_update', 'destroy']:
-            return [IsEmployer()]
-        return [IsAuthenticated()]
+            return [IsEmployer(), HasModuleAccess()]
+        return [IsAuthenticated(), HasModuleAccess()]
 
     def get_queryset(self):
         queryset = Employee.objects.all()
@@ -1002,8 +1004,30 @@ class WalletTransactionListView(generics.ListAPIView):
         return MultiWalletTransaction.objects.filter(wallet_system__employee__id=employee_id).order_by("-created_at")
 
 def get_central_wallet():
-    # Always return the one central wallet
-    return Wallet.objects.get(employee__isnull=True)
+    """
+    Get or create the central wallet for the tenant.
+    Central wallet has no employee (employee__isnull=True).
+    If multiple exist (data corruption), returns the first and logs warning.
+    """
+    try:
+        # Try to get existing central wallet
+        wallet = Wallet.objects.filter(employee__isnull=True).first()
+        
+        if wallet:
+            # Check if there are duplicates (data corruption)
+            duplicate_count = Wallet.objects.filter(employee__isnull=True).count()
+            if duplicate_count > 1:
+                print(f'[Central Wallet] WARNING: Found {duplicate_count} central wallets, using first one. Consider cleanup.')
+            return wallet
+        
+        # Create new central wallet if none exists
+        wallet = Wallet.objects.create(employee=None, balance=0.00)
+        print(f'[Central Wallet] Created new central wallet with balance: {wallet.balance}')
+        return wallet
+        
+    except Exception as e:
+        print(f'[Central Wallet] Error: {e}')
+        raise
 
 class IsAdminRole(permissions.BasePermission):
     def has_permission(self, request, view):
@@ -1023,27 +1047,32 @@ class CentralWalletTransactionCreateView(generics.CreateAPIView):
     def perform_create(self, serializer):
         if self.request.user.role != "admin":
             raise PermissionDenied("Only admins can deposit to the central wallet.")
+        
         wallet = get_central_wallet()
-        transaction = serializer.save(wallet=wallet)
-
-        # Update balance
-        if transaction.transaction_type == "deposit":
-            wallet.balance += transaction.amount
-            WalletTransaction.objects.create(
-                wallet=wallet,
-                transaction_type="deposit",
-                amount=transaction.amount,
-                description=f"Deposit to central wallet by {self.request.user.username}"
-            )
-        elif transaction.transaction_type == "withdrawal":
-            wallet.balance -= transaction.amount
-            WalletTransaction.objects.create(
-                wallet=wallet,
-                transaction_type="withdrawal",
-                amount=transaction.amount,
-                description=f"Withdrawal from central wallet by {self.request.user.username}"
-            )
+        
+        # Get transaction data
+        transaction_type = serializer.validated_data['transaction_type']
+        amount = abs(serializer.validated_data['amount'])  # Ensure positive amount
+        description = serializer.validated_data.get('description', '')
+        
+        # Update wallet balance
+        if transaction_type == "deposit":
+            wallet.balance += amount
+            if not description:
+                description = f"Deposit to central wallet by {self.request.user.username}"
+        elif transaction_type == "withdrawal":
+            wallet.balance -= amount
+            if not description:
+                description = f"Withdrawal from central wallet by {self.request.user.username}"
+        
         wallet.save()
+        
+        # Create the transaction record (only once!)
+        serializer.save(
+            wallet=wallet,
+            amount=amount,  # Always positive
+            description=description
+        )
 
 class CentralWalletTransactionListView(generics.ListAPIView):
     serializer_class = CentralWalletTransactionSerializer

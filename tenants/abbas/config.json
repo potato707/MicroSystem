@@ -1,0 +1,27 @@
+{
+  "name": "abbas",
+  "domain": "abbas.myapp.com",
+  "subdomain": "abbas",
+  "modules": {
+    "attendance": false,
+    "complaints": false,
+    "employees": false,
+    "notifications": false,
+    "reports": false,
+    "shifts": false,
+    "tasks": false,
+    "wallet": false
+  },
+  "theme": {
+    "primary": "#3498db",
+    "secondary": "#2ecc71"
+  },
+  "logo_url": null,
+  "contact": {
+    "email": null,
+    "phone": null
+  },
+  "is_active": true,
+  "created_at": "2025-10-24T08:17:26.581598+00:00",
+  "updated_at": "2025-10-24T13:47:07.619343+00:00"
+}

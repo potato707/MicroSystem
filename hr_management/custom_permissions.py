@@ -1,4 +1,61 @@
 from rest_framework.permissions import BasePermission
+from django.http import JsonResponse
+
+
+class HasModuleAccess(BasePermission):
+    """
+    Permission class to check if tenant has access to a specific module.
+    Usage: Add 'module_name' attribute to the view class.
+    
+    Example:
+        class EmployeeViewSet(viewsets.ModelViewSet):
+            module_name = 'employees'
+            permission_classes = [IsAuthenticated, HasModuleAccess]
+    """
+    
+    def has_permission(self, request, view):
+        # Get module name from view
+        module_key = getattr(view, 'module_key', None)
+        
+        if not module_key:
+            # If no module specified, allow access (backward compatibility)
+            return True
+        
+        # Check if tenant has this module enabled
+        from .tenant_models import TenantModule
+        from .tenant_middleware import get_current_tenant
+        
+        try:
+            tenant = get_current_tenant()
+            
+            if not tenant:
+                # No tenant context, deny access
+                return False
+            
+            # Check if module is enabled for this tenant
+            try:
+                tenant_module = TenantModule.objects.get(
+                    tenant=tenant,
+                    module_key=module_key
+                )
+                
+                if not tenant_module.is_enabled:
+                    # Store error message for custom response
+                    self.message = f'الوحدة "{tenant_module.module_name}" غير مفعلة لهذا العميل'
+                    return False
+                
+                return True
+                
+            except TenantModule.DoesNotExist:
+                # Module not found for tenant
+                self.message = f'الوحدة "{module_key}" غير متاحة'
+                return False
+                
+        except Exception as e:
+            # Error checking module access
+            self.message = f'خطأ في التحقق من صلاحيات الوحدة: {str(e)}'
+            return False
+
 
 class IsEmployer(BasePermission):
     """
