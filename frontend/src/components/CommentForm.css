@@ -1,0 +1,310 @@
+/**
+ * CommentForm Styles
+ * 
+ * Styles for the comment form with internal/public toggle functionality
+ * Includes visual indicators and responsive design
+ */
+
+.comment-form {
+  background: #fff;
+  border: 1px solid #e1e5e9;
+  border-radius: 8px;
+  padding: 20px;
+  margin: 16px 0;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+/* Comment Input Section */
+.comment-input-section {
+  margin-bottom: 16px;
+}
+
+.comment-label {
+  display: block;
+  font-weight: 600;
+  color: #374151;
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+
+.comment-textarea {
+  width: 100%;
+  min-height: 100px;
+  padding: 12px;
+  border: 2px solid #d1d5db;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.comment-textarea:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Visual indicators for comment type */
+.comment-textarea.internal-comment {
+  border-color: #f59e0b;
+  background-color: #fffbeb;
+}
+
+.comment-textarea.internal-comment:focus {
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.1);
+}
+
+.comment-textarea.public-comment {
+  border-color: #10b981;
+  background-color: #f0fdf4;
+}
+
+.comment-textarea.public-comment:focus {
+  border-color: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+}
+
+.character-counter {
+  font-size: 12px;
+  color: #6b7280;
+  text-align: right;
+  margin-top: 4px;
+}
+
+/* Visibility Toggle Section */
+.visibility-toggle-section {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  background-color: #f9fafb;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
+
+.toggle-container {
+  flex-shrink: 0;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 500;
+  color: #374151;
+}
+
+.visibility-checkbox {
+  width: 18px;
+  height: 18px;
+  margin-right: 8px;
+  cursor: pointer;
+}
+
+.toggle-text {
+  font-size: 14px;
+}
+
+/* Visibility Indicator */
+.visibility-indicator {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border-radius: 6px;
+  flex-grow: 1;
+  transition: all 0.2s ease;
+}
+
+.visibility-indicator.internal {
+  background-color: #fef3c7;
+  border: 1px solid #f59e0b;
+  color: #92400e;
+}
+
+.visibility-indicator.public {
+  background-color: #d1fae5;
+  border: 1px solid #10b981;
+  color: #065f46;
+}
+
+.indicator-icon {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.indicator-text {
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.indicator-text strong {
+  display: block;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.indicator-text small {
+  color: inherit;
+  opacity: 0.8;
+}
+
+/* Error Message */
+.error-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  background-color: #fee2e2;
+  border: 1px solid #fca5a5;
+  border-radius: 6px;
+  color: #dc2626;
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.error-icon {
+  flex-shrink: 0;
+}
+
+/* Form Actions */
+.form-actions {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.submit-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 200px;
+  justify-content: center;
+}
+
+.submit-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.submit-button.internal-btn {
+  background-color: #f59e0b;
+  color: white;
+}
+
+.submit-button.internal-btn:hover:not(:disabled) {
+  background-color: #d97706;
+}
+
+.submit-button.public-btn {
+  background-color: #10b981;
+  color: white;
+}
+
+.submit-button.public-btn:hover:not(:disabled) {
+  background-color: #059669;
+}
+
+.clear-button {
+  padding: 12px 20px;
+  background-color: transparent;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  color: #6b7280;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.clear-button:hover:not(:disabled) {
+  background-color: #f9fafb;
+  border-color: #9ca3af;
+}
+
+.clear-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Spinner Animation */
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid transparent;
+  border-top: 2px solid currentColor;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .comment-form {
+    padding: 16px;
+    margin: 12px 0;
+  }
+
+  .visibility-toggle-section {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .visibility-indicator {
+    width: 100%;
+  }
+
+  .form-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .submit-button {
+    min-width: auto;
+  }
+}
+
+/* Dark Mode Support (Optional) */
+@media (prefers-color-scheme: dark) {
+  .comment-form {
+    background: #1f2937;
+    border-color: #374151;
+    color: #f9fafb;
+  }
+
+  .comment-label {
+    color: #f9fafb;
+  }
+
+  .comment-textarea {
+    background-color: #374151;
+    border-color: #4b5563;
+    color: #f9fafb;
+  }
+
+  .visibility-toggle-section {
+    background-color: #374151;
+    border-color: #4b5563;
+  }
+
+  .toggle-text {
+    color: #f9fafb;
+  }
+}

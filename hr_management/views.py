@@ -2,12 +2,18 @@ from drf_spectacular.utils import extend_schema, OpenApiParameter
 from django.core.exceptions import ValidationError, PermissionDenied
 from django.shortcuts import render, get_object_or_404
 from django.utils import timezone
+from django.db.models import Q, Count, Sum, Avg
 import datetime
-from rest_framework import viewsets, generics, permissions
+from datetime import date, time, timedelta
+from decimal import Decimal
+from rest_framework import viewsets, generics, permissions, status
 from rest_framework.views import APIView
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.pagination import PageNumberPagination
-from .custom_permissions import IsEmployer
+from rest_framework.response import Response
+from rest_framework import status as rest_status  # Explicit import to avoid conflicts
+from .custom_permissions import IsEmployer, IsAdminOrComplaintAdmin
 from .models import (
     Employee, EmployeeDocument, EmployeeNote, EmployeeAttendance, WorkShift, 
     LeaveRequest, Complaint, ComplaintReply, ComplaintAttachment, Wallet, WalletTransaction, 
@@ -15,7 +21,19 @@ from .models import (
     TeamTask, OfficeLocation,
     # Multi-wallet models
     EmployeeWalletSystem, MainWallet, ReimbursementWallet, AdvanceWallet, 
-    MultiWalletTransaction, WalletTransfer
+    MultiWalletTransaction, WalletTransfer,
+    # Client Complaint System models
+    ComplaintCategory, ClientComplaint, ClientComplaintAttachment, 
+    ClientComplaintAssignment, ClientComplaintEmployeeAssignment, ClientComplaintTask, ClientComplaintComment,
+    ClientComplaintStatusHistory, ClientComplaintAccessToken, ClientComplaintReply,
+    ClientComplaintStatus, TeamComplaintAdminPermission, EmployeeComplaintAdminPermission,
+    # Ticket Automation models
+    TicketDelayThreshold,
+    # Shift Scheduling models
+    WeeklyShiftSchedule, ShiftOverride, ShiftAttendance,
+    # Utility functions
+    has_complaint_admin_permission, get_complaint_admin_permissions,
+    get_employee_shift_for_date, get_employees_on_shift_now, calculate_weekly_hours
 )
 from .serializers import (
     EmployeeSerializer, EmployeeDocumentSerializer, EmployeeNoteSerializer, 
@@ -28,7 +46,20 @@ from .serializers import (
     TaskCommentSerializer, ManagerTaskDashboardSerializer, TeamSerializer, 
     TeamCreateSerializer, TeamMembershipSerializer, TeamTaskSerializer, OfficeLocationSerializer,
     # Multi-wallet serializers
-    EmployeeWalletSystemSerializer, MultiWalletTransactionSerializer, WalletTransferSerializer
+    EmployeeWalletSystemSerializer, MultiWalletTransactionSerializer, WalletTransferSerializer,
+    # Client Complaint System serializers
+    ComplaintCategorySerializer, ClientComplaintSerializer, ClientComplaintSubmissionSerializer,
+    ClientComplaintStatusSerializer, ClientComplaintStatusUpdateSerializer,
+    ClientComplaintAttachmentSerializer, ClientComplaintCommentSerializer, 
+    ClientComplaintStatusHistorySerializer, ClientComplaintAssignmentSerializer,
+    ClientComplaintEmployeeAssignmentSerializer, ClientComplaintTaskSerializer, ClientPortalComplaintSerializer, ClientComplaintReplySerializer,
+    ClientComplaintReplyCreateSerializer, ClientComplaintAccessTokenSerializer,
+    # Ticket Automation serializers
+    TicketDelayThresholdSerializer,
+    # Shift Scheduling serializers
+    WeeklyShiftScheduleSerializer, BulkWeeklyScheduleSerializer, ShiftOverrideSerializer,
+    ShiftAttendanceSerializer, ClockInSerializer, ClockOutSerializer,
+    EmployeeShiftSummarySerializer, CurrentShiftStatusSerializer, LateAbsentReportSerializer
 )
 from utils.timezone_utils import system_now
 from rest_framework.response import Response
@@ -79,9 +110,10 @@ class CurrentUserView(APIView):
             user = request.user
             if hasattr(user, 'employee'):
                 employee = user.employee
-                # Return employee data with user role
+                # Return employee data with user role, but use user.id for consistency
                 data = {
-                    'id': str(employee.id),
+                    'id': str(user.id),
+                    'employee_id': str(employee.id),
                     'name': employee.name,
                     'position': employee.position,
                     'department': employee.department,
@@ -138,6 +170,45 @@ class EmployeeDashboardStatsView(APIView):
             has_checked_in = today_shifts.exists()
             has_active_shift = active_shift is not None
             
+            # Check if employee is late based on shift schedule
+            attendance_status = 'absent'
+            is_late = False
+            late_minutes = 0
+            
+            if has_checked_in and latest_shift:
+                # Get the shift schedule for today
+                day_of_week = today.weekday()
+                our_day_of_week = (day_of_week + 1) % 7  # Convert to Sunday=0
+                
+                try:
+                    shift_schedule = WeeklyShiftSchedule.objects.get(
+                        employee=employee,
+                        day_of_week=our_day_of_week,
+                        is_active=True
+                    )
+                    
+                    expected_start = shift_schedule.start_time
+                    if isinstance(expected_start, str):
+                        import datetime as dt
+                        expected_start = dt.datetime.strptime(expected_start, '%H:%M:%S').time() if len(expected_start) > 5 else dt.datetime.strptime(expected_start, '%H:%M').time()
+                    
+                    # Compare check-in time with expected start time (grace period: 15 minutes)
+                    check_in_time = latest_shift.check_in.time()
+                    expected_start_dt = timezone.datetime.combine(today, expected_start)
+                    check_in_dt = timezone.datetime.combine(today, check_in_time)
+                    grace_period = timezone.timedelta(minutes=15)
+                    
+                    if check_in_dt > (expected_start_dt + grace_period):
+                        is_late = True
+                        late_minutes = int((check_in_dt - expected_start_dt).total_seconds() / 60)
+                        attendance_status = 'late'
+                    else:
+                        attendance_status = 'present'
+                
+                except WeeklyShiftSchedule.DoesNotExist:
+                    # No schedule defined - default to present
+                    attendance_status = 'present'
+            
             # Get wallet system balances (new multi-wallet system) 
             try:
                 wallet_system = EmployeeWalletSystem.objects.get(employee=employee)
@@ -184,7 +255,9 @@ class EmployeeDashboardStatsView(APIView):
                 'attendance_today': {
                     'checked_in': latest_shift.check_in.strftime('%H:%M') if latest_shift else None,
                     'checked_out': latest_shift.check_out.strftime('%H:%M') if latest_shift and latest_shift.check_out else None,
-                    'status': 'present' if has_checked_in else 'absent',
+                    'status': attendance_status,
+                    'is_late': is_late,
+                    'late_minutes': late_minutes,
                     'has_active_shift': has_active_shift,
                     'active_shift_id': str(active_shift.id) if active_shift else None
                 },
@@ -203,7 +276,10 @@ class EmployeeDashboardStatsView(APIView):
             
             return Response(data)
         except Exception as e:
-            return Response({"error": "Failed to get employee dashboard stats"}, status=500)
+            import traceback
+            traceback.print_exc()
+            print(f"Error in EmployeeDashboardStatsView: {str(e)}")
+            return Response({"error": f"Failed to get employee dashboard stats: {str(e)}"}, status=500)
 
 class EmployeeDocumentViewSet(viewsets.ModelViewSet):
     queryset = EmployeeDocument.objects.all()
@@ -265,12 +341,42 @@ class CheckInView(APIView):
 
         now = system_now()
         today = now.date()
+        current_time = now.time()
+        day_of_week = today.weekday()  # Monday=0, Sunday=6
+        # Convert Python weekday to our model's day_of_week (Sunday=0)
+        our_day_of_week = (day_of_week + 1) % 7
+        
+        # Get employee's shift schedule for today
+        try:
+            shift_schedule = WeeklyShiftSchedule.objects.get(
+                employee=employee,
+                day_of_week=our_day_of_week,
+                is_active=True
+            )
+            expected_start = shift_schedule.start_time
+            
+            # Check if employee is late (grace period: 15 minutes)
+            if isinstance(expected_start, str):
+                expected_start = datetime.datetime.strptime(expected_start, '%H:%M:%S').time() if len(expected_start) > 5 else datetime.datetime.strptime(expected_start, '%H:%M').time()
+            
+            grace_period = datetime.timedelta(minutes=15)
+            start_dt = datetime.datetime.combine(today, expected_start)
+            current_dt = datetime.datetime.combine(today, current_time)
+            
+            is_late = current_dt > (start_dt + grace_period)
+            late_minutes = int((current_dt - start_dt).total_seconds() / 60) if is_late else 0
+            
+        except WeeklyShiftSchedule.DoesNotExist:
+            # No schedule defined for today - allow check-in but mark as present
+            is_late = False
+            late_minutes = 0
+            expected_start = None
         
         # Get or create attendance record for today
         attendance, created = EmployeeAttendance.objects.get_or_create(
             employee=employee,
             date=today,
-            defaults={"status": "present"}
+            defaults={"status": "late" if is_late else "present"}
         )
 
         # Check if employee has an active shift (checked in but not checked out)
@@ -293,11 +399,17 @@ class CheckInView(APIView):
             is_active=True
         )
         
-        # Update attendance status
-        attendance.status = "present"
+        # Update attendance status based on lateness
+        attendance.status = "late" if is_late else "present"
+        attendance.check_in = current_time
         attendance.save()
 
-        return Response(EmployeeAttendanceSerializer(attendance).data, status=200)
+        response_data = EmployeeAttendanceSerializer(attendance).data
+        response_data['is_late'] = is_late
+        response_data['late_minutes'] = late_minutes
+        response_data['expected_start'] = str(expected_start) if expected_start else None
+
+        return Response(response_data, status=200)
 
 
 class CheckOutView(APIView):
@@ -332,9 +444,61 @@ class CheckOutView(APIView):
         # Check out from the active shift
         active_shift.check_out = now
         active_shift.is_active = False
+        
+        # Calculate hours and overtime based on shift schedule
+        today = now.date()
+        current_time = now.time()
+        day_of_week = today.weekday()
+        our_day_of_week = (day_of_week + 1) % 7
+        
+        overtime_minutes = 0
+        total_hours = 0
+        
+        try:
+            shift_schedule = WeeklyShiftSchedule.objects.get(
+                employee=employee,
+                day_of_week=our_day_of_week,
+                is_active=True
+            )
+            
+            expected_end = shift_schedule.end_time
+            if isinstance(expected_end, str):
+                expected_end = datetime.datetime.strptime(expected_end, '%H:%M:%S').time() if len(expected_end) > 5 else datetime.datetime.strptime(expected_end, '%H:%M').time()
+            
+            # Calculate total hours worked
+            work_duration = active_shift.check_out - active_shift.check_in
+            total_minutes = work_duration.total_seconds() / 60
+            
+            # Deduct break time (1 hour for shifts > 6 hours)
+            if total_minutes > 360:  # 6 hours
+                total_minutes -= 60  # 1 hour break
+            
+            total_hours = total_minutes / 60
+            
+            # Calculate overtime (grace period: 30 minutes after expected end)
+            end_dt = datetime.datetime.combine(today, expected_end)
+            current_dt = datetime.datetime.combine(today, current_time)
+            overtime_threshold = datetime.timedelta(minutes=30)
+            
+            if current_dt > (end_dt + overtime_threshold):
+                overtime_minutes = int((current_dt - end_dt).total_seconds() / 60)
+        
+        except WeeklyShiftSchedule.DoesNotExist:
+            # No schedule - just calculate raw hours
+            work_duration = active_shift.check_out - active_shift.check_in
+            total_hours = work_duration.total_seconds() / 3600
+        
         active_shift.save()
+        
+        # Update attendance check_out time
+        attendance.check_out = current_time
+        attendance.save()
 
-        return Response(EmployeeAttendanceSerializer(attendance).data, status=200)
+        response_data = EmployeeAttendanceSerializer(attendance).data
+        response_data['total_hours'] = round(total_hours, 2)
+        response_data['overtime_minutes'] = overtime_minutes
+
+        return Response(response_data, status=200)
 
 
 class WorkShiftViewSet(viewsets.ModelViewSet):
@@ -728,12 +892,12 @@ class ComplaintReplyCreateView(generics.CreateAPIView):
     def perform_create(self, serializer):
         complaint_id = self.kwargs.get("complaint_id")
         complaint = get_object_or_404(Complaint, id=complaint_id)
-        
         # Prevent replies to closed complaints
         if complaint.status == 'closed':
             raise ValidationError("Cannot reply to a closed complaint")
-        
-        serializer.save(complaint=complaint)
+        user = self.request.user
+        author_name = getattr(user, 'name', None) or getattr(user, 'username', None) or user.get_full_name() or user.email
+        serializer.save(complaint=complaint, author=user, author_name=author_name)
 
 class ComplaintCloseView(APIView):
     permission_classes = [IsAuthenticated]
@@ -1008,7 +1172,24 @@ class TaskViewSet(viewsets.ModelViewSet):
         user = self.request.user
         queryset = Task.objects.all()
         
-        # Filter by date (default to today)
+        # For individual task operations (retrieve, update, partial_update, destroy), don't apply date filter
+        if self.action in ['retrieve', 'update', 'partial_update', 'destroy']:
+            # Still apply role-based filtering for security
+            if user.role == 'employee':
+                try:
+                    employee = user.employee
+                    # Allow access to tasks assigned directly to employee or to their teams
+                    team_ids = list(employee.team_memberships.filter(is_active=True).values_list('team_id', flat=True))
+                    queryset = queryset.filter(
+                        Q(employee=employee) |  # Tasks assigned directly to employee
+                        Q(team_id__in=team_ids)  # Team tasks (with or without specific employee)
+                    )
+                except Employee.DoesNotExist:
+                    queryset = queryset.none()
+            # Admins can access any task for individual operations
+            return queryset
+        
+        # For list view, apply date filtering
         date_param = self.request.query_params.get('date')
         if date_param:
             try:
@@ -1019,19 +1200,28 @@ class TaskViewSet(viewsets.ModelViewSet):
         else:
             queryset = queryset.filter(date=datetime.date.today())
         
-        # Role-based filtering
+        # Role-based filtering for list view
         if user.role == 'employee':
-            # Employees see only their own tasks
+            # Employees see tasks assigned to them directly or tasks assigned to their teams
             try:
                 employee = user.employee
-                queryset = queryset.filter(employee=employee)
+                # Get tasks assigned directly to the employee or to teams they belong to
+                team_ids = list(employee.team_memberships.filter(is_active=True).values_list('team_id', flat=True))
+                queryset = queryset.filter(
+                    Q(employee=employee) |  # Tasks assigned directly to employee
+                    Q(team_id__in=team_ids, employee__isnull=True)  # Team tasks without specific employee
+                )
             except Employee.DoesNotExist:
                 queryset = queryset.none()
         elif user.role == 'admin':
-            # Admins see all tasks, can filter by employee
+            # Admins see all tasks, can filter by employee or team
             employee_id = self.request.query_params.get('employee_id')
+            team_id = self.request.query_params.get('team_id')
+            
             if employee_id:
                 queryset = queryset.filter(employee_id=employee_id)
+            elif team_id:
+                queryset = queryset.filter(team_id=team_id)
         
         return queryset.order_by('-priority', 'created_at')
     
@@ -1043,34 +1233,149 @@ class TaskViewSet(viewsets.ModelViewSet):
             try:
                 employee = user.employee
                 # Employees can only create tasks for themselves
-                serializer.save(employee=employee, created_by=user)
+                task = serializer.save(employee=employee, created_by=user)
             except Employee.DoesNotExist:
                 raise ValidationError("Employee profile not found. Please contact administrator.")
         elif user.role == 'admin':
             # Check if employee was specified in the request
             employee_id = self.request.data.get('employee')
+            team_id = self.request.data.get('team')
             
+            employee = None
             if employee_id:
                 # Admin is creating task for a specific employee
                 try:
                     employee = Employee.objects.get(id=employee_id)
-                    serializer.save(
-                        employee=employee, 
-                        created_by=user, 
-                        assigned_by_manager=True
-                    )
                 except Employee.DoesNotExist:
                     raise ValidationError("Employee not found")
+            elif team_id and not employee_id:
+                # Team assignment without specific employee - leave employee as None
+                employee = None
             else:
-                # No employee specified - check if admin has their own employee profile
+                # No employee or team specified - check if admin has their own employee profile
                 try:
                     employee = user.employee
-                    # Admin is creating task for themselves
-                    serializer.save(employee=employee, created_by=user)
                 except Employee.DoesNotExist:
-                    raise ValidationError("Employee ID required for admin task creation")
+                    raise ValidationError("Employee ID or Team ID required for task creation")
+            
+            task = serializer.save(
+                employee=employee, 
+                created_by=user, 
+                assigned_by_manager=True
+            )
         else:
             raise PermissionDenied("You don't have permission to create tasks")
+        
+        # Handle team assignment if provided
+        team_id = self.request.data.get('team')
+        if team_id:
+            try:
+                team = Team.objects.get(id=team_id)
+                task.team = team
+                task.save()
+            except Team.DoesNotExist:
+                raise ValidationError("Team not found")
+        
+        return task
+
+
+class AdminTaskManagementView(generics.ListAPIView):
+    """Enhanced task management view for admins and team managers"""
+    serializer_class = TaskSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    
+    def get_queryset(self):
+        user = self.request.user
+        queryset = Task.objects.select_related('employee', 'team', 'created_by').prefetch_related('subtasks')
+        
+        # Permission filtering
+        if user.role == 'admin':
+            # Admins can see all tasks
+            pass
+        elif user.role == 'employee':
+            # Check if user is a team manager
+            try:
+                employee = user.employee
+                managed_teams = Team.objects.filter(manager=employee)
+                if managed_teams.exists():
+                    # Team manager: see tasks from managed teams
+                    team_ids = list(managed_teams.values_list('id', flat=True))
+                    # Also include employee's own tasks and team member tasks
+                    member_team_ids = list(employee.team_memberships.filter(is_active=True).values_list('team_id', flat=True))
+                    all_team_ids = list(set(team_ids + member_team_ids))
+                    
+                    queryset = queryset.filter(
+                        Q(employee=employee) |  # Own tasks
+                        Q(team_id__in=all_team_ids)  # Managed team tasks + member team tasks
+                    )
+                else:
+                    # Regular employee: no access to management view
+                    return Task.objects.none()
+            except Employee.DoesNotExist:
+                return Task.objects.none()
+        else:
+            return Task.objects.none()
+        
+        # Search filtering
+        search = self.request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(
+                Q(title__icontains=search) |
+                Q(description__icontains=search) |
+                Q(employee__name__icontains=search) |
+                Q(team__name__icontains=search)
+            )
+        
+        # Status filtering
+        status = self.request.query_params.get('status')
+        if status and status != 'all':
+            queryset = queryset.filter(status=status)
+        
+        # Priority filtering
+        priority = self.request.query_params.get('priority')
+        if priority and priority != 'all':
+            queryset = queryset.filter(priority=priority)
+        
+        # Employee filtering
+        employee_id = self.request.query_params.get('employee_id')
+        if employee_id and employee_id != 'all':
+            queryset = queryset.filter(employee_id=employee_id)
+        
+        # Team filtering
+        team_id = self.request.query_params.get('team_id')
+        if team_id and team_id != 'all':
+            queryset = queryset.filter(team_id=team_id)
+        
+        # Date range filtering
+        date_from = self.request.query_params.get('date_from')
+        date_to = self.request.query_params.get('date_to')
+        if date_from:
+            try:
+                date_from_parsed = datetime.datetime.strptime(date_from, '%Y-%m-%d').date()
+                queryset = queryset.filter(date__gte=date_from_parsed)
+            except ValueError:
+                pass
+        if date_to:
+            try:
+                date_to_parsed = datetime.datetime.strptime(date_to, '%Y-%m-%d').date()
+                queryset = queryset.filter(date__lte=date_to_parsed)
+            except ValueError:
+                pass
+        
+        # Sorting
+        sort_by = self.request.query_params.get('sort_by', 'created_at')
+        sort_order = self.request.query_params.get('sort_order', 'desc')
+        
+        valid_sort_fields = ['created_at', 'date', 'priority', 'status', 'title', 'employee__name', 'team__name']
+        if sort_by in valid_sort_fields:
+            if sort_order == 'desc':
+                sort_by = f'-{sort_by}'
+            queryset = queryset.order_by(sort_by)
+        else:
+            queryset = queryset.order_by('-created_at')
+            
+        return queryset
 
 
 class TaskUpdateView(generics.UpdateAPIView):
@@ -1083,9 +1388,14 @@ class TaskUpdateView(generics.UpdateAPIView):
         queryset = Task.objects.all()
         
         if user.role == 'employee':
-            # Employees can only update their own tasks
+            # Employees can update tasks assigned to them directly or to their teams
             if hasattr(user, 'employee'):
-                queryset = queryset.filter(employee=user.employee)
+                employee = user.employee
+                team_ids = list(employee.team_memberships.filter(is_active=True).values_list('team_id', flat=True))
+                queryset = queryset.filter(
+                    Q(employee=employee) |  # Tasks assigned directly to employee
+                    Q(team_id__in=team_ids)  # Team tasks
+                )
             else:
                 queryset = queryset.none()
         
@@ -1350,27 +1660,98 @@ class SubtaskViewSet(viewsets.ModelViewSet):
             # Get subtasks for a specific parent task
             parent_task = get_object_or_404(Task, id=parent_task_id)
             
-            # Check permissions - only task owner or admin can view subtasks
-            if user.role == 'admin' or (hasattr(user, 'employee') and parent_task.employee == user.employee):
+            # Check permissions - admin, task owner, team members, or team leader
+            if user.role == 'admin':
                 return Subtask.objects.filter(parent_task=parent_task)
+            elif hasattr(user, 'employee'):
+                employee = user.employee
+                
+                # Task owner can view all subtasks
+                if parent_task.employee == employee:
+                    return Subtask.objects.filter(parent_task=parent_task)
+                # Team leader can view subtasks for team tasks
+                elif parent_task.team and parent_task.team.team_leader == employee:
+                    return Subtask.objects.filter(parent_task=parent_task)
+                # Team members can view subtasks for team tasks or assigned to them
+                elif parent_task.team and parent_task.team.memberships.filter(employee=employee, is_active=True).exists():
+                    # If task is assigned to team without specific employee, team members can view all subtasks
+                    if not parent_task.employee:
+                        return Subtask.objects.filter(parent_task=parent_task)
+                    # Otherwise, only view subtasks assigned to them
+                    else:
+                        return Subtask.objects.filter(parent_task=parent_task, assigned_employee=employee)
+                # Individual assigned subtasks
+                else:
+                    return Subtask.objects.filter(parent_task=parent_task, assigned_employee=employee)
             else:
                 return Subtask.objects.none()
         
-        # If no parent_task specified, return user's own subtasks
+        # If no parent_task specified, return relevant subtasks
         if user.role == 'admin':
             return Subtask.objects.all()
         elif hasattr(user, 'employee'):
-            return Subtask.objects.filter(parent_task__employee=user.employee)
+            # Return subtasks for tasks owned by user or assigned to user
+            return Subtask.objects.filter(
+                Q(parent_task__employee=user.employee) |
+                Q(assigned_employee=user.employee)
+            ).distinct()
         else:
             return Subtask.objects.none()
     
     def perform_create(self, serializer):
-        # Ensure parent_task belongs to current user (for employees)
         parent_task = serializer.validated_data['parent_task']
         user = self.request.user
         
-        if user.role != 'admin' and hasattr(user, 'employee') and parent_task.employee != user.employee:
-            raise PermissionDenied("You can only create subtasks for your own tasks")
+        # Check if user can create subtasks for this task
+        can_create = False
+        
+        if user.role == 'admin':
+            can_create = True
+        elif hasattr(user, 'employee'):
+            employee = user.employee
+            # Task owner can create subtasks
+            if parent_task.employee == employee:
+                can_create = True
+            # Team leader can create subtasks for team tasks
+            elif parent_task.team and parent_task.team.team_leader == employee:
+                can_create = True
+            # Team members can create subtasks for team tasks without specific assignee
+            elif parent_task.team and not parent_task.employee and parent_task.team.memberships.filter(employee=employee, is_active=True).exists():
+                can_create = True
+            # Task creator (admin/manager) can create subtasks
+            elif parent_task.created_by == user:
+                can_create = True
+        
+        if not can_create:
+            raise PermissionDenied("You don't have permission to create subtasks for this task")
+        
+        serializer.save()
+    
+    def perform_update(self, serializer):
+        subtask = self.get_object()
+        user = self.request.user
+        
+        # Check if user can update this subtask
+        can_update = False
+        
+        if user.role == 'admin':
+            can_update = True
+        elif hasattr(user, 'employee'):
+            # Task owner can update subtasks
+            if subtask.parent_task.employee == user.employee:
+                can_update = True
+            # Team leader can update subtasks for team tasks
+            elif subtask.parent_task.team and subtask.parent_task.team.team_leader == user.employee:
+                can_update = True
+            # Assigned employee can update their own subtasks (limited fields)
+            elif subtask.assigned_employee == user.employee:
+                # Only allow status, notes updates for assigned employees
+                allowed_fields = {'status', 'notes'}
+                if set(serializer.validated_data.keys()).issubset(allowed_fields):
+                    can_update = True
+        
+        if not can_update:
+            raise PermissionDenied("You don't have permission to update this subtask")
         
         serializer.save()
 
@@ -1384,9 +1765,24 @@ class SubtaskQuickActionsView(APIView):
             subtask = Subtask.objects.get(id=subtask_id)
             user = request.user
             
-            # Check permissions
-            if user.role != 'admin' and (not hasattr(user, 'employee') or subtask.parent_task.employee != user.employee):
-                raise PermissionDenied("Permission denied")
+            # Check permissions - admin, task owner, team leader, or assigned employee
+            can_perform_action = False
+            
+            if user.role == 'admin':
+                can_perform_action = True
+            elif hasattr(user, 'employee'):
+                # Task owner can perform any action
+                if subtask.parent_task.employee == user.employee:
+                    can_perform_action = True
+                # Team leader can perform actions on team tasks
+                elif subtask.parent_task.team and subtask.parent_task.team.team_leader == user.employee:
+                    can_perform_action = True
+                # Assigned employee can perform actions on their subtasks
+                elif subtask.assigned_employee == user.employee:
+                    can_perform_action = True
+            
+            if not can_perform_action:
+                raise PermissionDenied("You don't have permission to perform actions on this subtask")
             
             action = request.data.get('action')
             
@@ -1429,6 +1825,117 @@ class SubtaskQuickActionsView(APIView):
             
         except Subtask.DoesNotExist:
             return Response({'error': 'Subtask not found'}, status=404)
+
+
+class AssignableEmployeesView(APIView):
+    """Get employees that can be assigned to subtasks for a specific task"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, task_id):
+        try:
+            task = Task.objects.get(id=task_id)
+            user = request.user
+            
+            # Check if user can assign subtasks for this task
+            can_assign = False
+            if user.role == 'admin':
+                can_assign = True
+            elif hasattr(user, 'employee'):
+                # Task owner can assign subtasks
+                if task.employee == user.employee:
+                    can_assign = True
+                # Team leader can assign subtasks for team tasks
+                elif task.team and task.team.team_leader == user.employee:
+                    can_assign = True
+                # Task creator can assign subtasks
+                elif task.created_by == user:
+                    can_assign = True
+            
+            if not can_assign:
+                return Response({'error': 'Permission denied'}, status=403)
+            
+            # Get assignable employees
+            assignable_employees = []
+            
+            if task.team:
+                # If task is assigned to a team, get active team members
+                team_memberships = TeamMembership.objects.filter(
+                    team=task.team, 
+                    is_active=True
+                ).select_related('employee')
+                
+                for membership in team_memberships:
+                    employee = membership.employee
+                    assignable_employees.append({
+                        'id': str(employee.id),
+                        'name': employee.name,
+                        'position': employee.position,
+                        'department': employee.department,
+                        'team_role': membership.role
+                    })
+            else:
+                # If no specific team, task owner can assign to themselves
+                if hasattr(user, 'employee'):
+                    employee = user.employee
+                    assignable_employees.append({
+                        'id': str(employee.id),
+                        'name': employee.name,
+                        'position': employee.position,
+                        'department': employee.department,
+                        'team_role': 'task_owner'
+                    })
+            
+            return Response({'employees': assignable_employees})
+            
+        except Task.DoesNotExist:
+            return Response({'error': 'Task not found'}, status=404)
+
+
+class TeamMembersView(APIView):
+    """Get team members for subtask assignment during task creation"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, team_id):
+        try:
+            team = Team.objects.get(id=team_id)
+            user = request.user
+            
+            # Check if user can view team members
+            can_view = False
+            if user.role == 'admin':
+                can_view = True
+            elif hasattr(user, 'employee'):
+                # Team members can see their team members
+                if team.memberships.filter(employee=user.employee, is_active=True).exists():
+                    can_view = True
+                # Team leader can see team members
+                elif team.team_leader == user.employee:
+                    can_view = True
+            
+            if not can_view:
+                return Response({'error': 'Permission denied'}, status=403)
+            
+            # Get team members
+            team_memberships = TeamMembership.objects.filter(
+                team=team, 
+                is_active=True
+            ).select_related('employee')
+            
+            employees = []
+            for membership in team_memberships:
+                employee = membership.employee
+                employees.append({
+                    'id': str(employee.id),
+                    'name': employee.name,
+                    'position': employee.position,
+                    'department': employee.department,
+                    'team_role': membership.role
+                })
+            
+            return Response({'employees': employees})
+            
+        except Team.DoesNotExist:
+            return Response({'error': 'Team not found'}, status=404)
 
 
 class TeamViewSet(viewsets.ModelViewSet):
@@ -1546,20 +2053,67 @@ class AssignTaskToTeamView(APIView):
         team_notes = request.data.get('team_notes', '')
         can_reassign = request.data.get('can_reassign', True)
         
-        if not task_id or not team_id:
-            return Response({'error': 'task_id and team_id are required'}, status=400)
+        # For backward compatibility: if task_id is provided, assign existing task
+        # If not provided, create a new task with the provided parameters
+        title = request.data.get('title')
+        description = request.data.get('description')
+        priority = request.data.get('priority', 'medium')
+        estimated_minutes = request.data.get('estimated_minutes')
+        
+        if not team_id:
+            return Response({'error': 'team_id is required'}, status=400)
+        
+        # If task_id is not provided, create a task with defaults if needed
+        if not task_id:
+            # Provide reasonable defaults if title/description not provided
+            if not title:
+                title = f"Team Task - {team_priority.title()} Priority"
+            if not description:
+                description = f"Task assigned to team on {timezone.now().strftime('%Y-%m-%d %H:%M')}"
+            if estimated_minutes is None:
+                estimated_minutes = 60  # Default to 1 hour
         
         try:
-            task = Task.objects.get(id=task_id)
             team = Team.objects.get(id=team_id)
             
-            # Check if task is already assigned to a team
-            if hasattr(task, 'team_assignment'):
-                return Response({'error': 'Task is already assigned to a team'}, status=400)
-            
-            # Update task with team
-            task.team = team
-            task.save()
+            if task_id:
+                # Assign existing task to team
+                task = Task.objects.get(id=task_id)
+                
+                # Check if task is already assigned to a team
+                if hasattr(task, 'team_assignment'):
+                    return Response({'error': 'Task is already assigned to a team'}, status=400)
+                
+                # Update task with team
+                task.team = team
+                task.save()
+            else:
+                # Create new task and assign to team
+                # Check if a specific employee is requested
+                employee_id = request.data.get('employee_id')
+                employee_to_assign = None
+                
+                if employee_id:
+                    # Assign to specific employee if requested
+                    try:
+                        employee_to_assign = Employee.objects.get(id=employee_id)
+                        # Verify the employee is part of the team
+                        if not team.memberships.filter(employee=employee_to_assign, is_active=True).exists():
+                            return Response({'error': 'Employee is not an active member of this team'}, status=400)
+                    except Employee.DoesNotExist:
+                        return Response({'error': 'Employee not found'}, status=404)
+                # If no specific employee requested, leave as team-only assignment
+                
+                task = Task.objects.create(
+                    title=title,
+                    description=description,
+                    priority=priority,
+                    estimated_minutes=estimated_minutes,
+                    notes=team_notes,
+                    created_by=request.user,
+                    team=team,
+                    employee=employee_to_assign  # Can be None for team-only assignments
+                )
             
             # Create team task assignment
             team_task = TeamTask.objects.create(
@@ -1572,7 +2126,10 @@ class AssignTaskToTeamView(APIView):
             )
             
             serializer = TeamTaskSerializer(team_task)
-            return Response(serializer.data, status=201)
+            return Response({
+                'message': 'Task successfully assigned to team' if task_id else 'Task created and assigned to team',
+                'team_task': serializer.data
+            }, status=201)
             
         except Task.DoesNotExist:
             return Response({'error': 'Task not found'}, status=404)
@@ -1997,3 +2554,2090 @@ class WalletTransferCreateView(generics.CreateAPIView):
             created_by=self.request.user
         )
 
+
+# Client Complaint System Views
+
+class ComplaintCategoryViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing complaint categories"""
+    queryset = ComplaintCategory.objects.all()
+    serializer_class = ComplaintCategorySerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        # Admins and complaint admins with manage_categories permission can see all categories
+        if self.request.user.role == 'admin' or has_complaint_admin_permission(self.request.user, 'can_manage_categories'):
+            return ComplaintCategory.objects.all()
+        return ComplaintCategory.objects.filter(is_active=True)
+
+
+class PublicComplaintCategoryListView(generics.ListAPIView):
+    """Public view for listing active complaint categories"""
+    queryset = ComplaintCategory.objects.filter(is_active=True)
+    serializer_class = ComplaintCategorySerializer
+    permission_classes = []  # No authentication required
+
+
+class ClientComplaintViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing client complaints"""
+    queryset = ClientComplaint.objects.all()
+    permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    
+    def get_serializer_class(self):
+        if self.action == 'create':
+            return ClientComplaintSubmissionSerializer
+        return ClientComplaintSerializer
+    
+    def get_queryset(self):
+        queryset = ClientComplaint.objects.select_related(
+            'category', 'reviewed_by', 'resolved_by'
+        ).prefetch_related(
+            'attachments', 'assignments__team', 'tasks__task', 'comments__author', 'status_history__changed_by'
+        )
+        
+        # Filter based on user role and team assignments (unless filtering by specific team)
+        team_filter = self.request.query_params.get('team')
+        if not team_filter:  # Only apply general team filtering if not filtering by specific team
+            if self.request.user.role == 'admin':
+                # Admins can see all complaints
+                pass
+            elif self.request.user.role == 'manager':
+                # Managers can see complaints assigned to their teams
+                user_teams = Team.objects.filter(memberships__employee__user=self.request.user)
+                queryset = queryset.filter(assignments__team__in=user_teams, assignments__is_active=True).distinct()
+            else:
+                # Regular employees can see complaints assigned to their teams
+                user_teams = Team.objects.filter(memberships__employee__user=self.request.user)
+                queryset = queryset.filter(assignments__team__in=user_teams, assignments__is_active=True).distinct()
+        
+        # Apply query parameter filters
+        status = self.request.query_params.get('status')
+        if status:
+            queryset = queryset.filter(status=status)
+        
+        priority = self.request.query_params.get('priority')
+        if priority:
+            queryset = queryset.filter(priority=priority)
+        
+        category = self.request.query_params.get('category')
+        if category:
+            queryset = queryset.filter(category=category)
+        
+        # Filter by specific team (for task assignment)
+        if team_filter:
+            # Ensure user has access to this team
+            if self.request.user.role == 'admin':
+                # Admins can filter by any team
+                queryset = queryset.filter(assignments__team=team_filter, assignments__is_active=True)
+            else:
+                # Check if user is member of the requested team
+                user_teams = Team.objects.filter(memberships__employee__user=self.request.user)
+                if user_teams.filter(id=team_filter).exists():
+                    queryset = queryset.filter(assignments__team=team_filter, assignments__is_active=True)
+                else:
+                    # User doesn't have access to this team, return empty queryset
+                    queryset = queryset.none()
+        
+        return queryset.order_by('-created_at')
+    
+    def destroy(self, request, *args, **kwargs):
+        """Delete a complaint - Only admins can delete complaints"""
+        complaint = self.get_object()
+        user = request.user
+        
+        # Only admins can delete complaints
+        if user.role != 'admin':
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only admins can delete complaints.")
+        
+        # Log the deletion for audit purposes
+        complaint_id = complaint.id
+        complaint_title = complaint.title
+        print(f"Admin {user.username} ({user.id}) deleted complaint {complaint_id}: '{complaint_title}'")
+        
+        return super().destroy(request, *args, **kwargs)
+
+
+class PublicClientComplaintCreateView(generics.CreateAPIView):
+    """Public endpoint for clients to submit complaints"""
+    queryset = ClientComplaint.objects.all()
+    serializer_class = ClientComplaintSubmissionSerializer
+    permission_classes = []  # No authentication required
+    
+    def perform_create(self, serializer):
+        complaint = serializer.save()
+        
+        # Create status history entry
+        ClientComplaintStatusHistory.objects.create(
+            complaint=complaint,
+            old_status='pending_review',
+            new_status='pending_review',
+            changed_by=None,  # System created
+            reason="شكوى جديدة من العميل"
+        )
+
+
+class ClientComplaintReviewView(APIView):
+    """View for reviewing complaints (approve/reject)"""
+    permission_classes = [IsAuthenticated]
+    
+    @extend_schema(
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'status': {'type': 'string', 'enum': ['approved', 'rejected']},
+                    'review_notes': {'type': 'string'},
+                    'rejection_reason': {'type': 'string'}
+                },
+                'required': ['status']
+            }
+        }
+    )
+    def post(self, request, pk):
+        # Check if user has complaint admin permission or is regular admin/manager
+        if not (request.user.role in ['admin', 'manager'] or has_complaint_admin_permission(request.user, 'can_review')):
+            raise PermissionDenied("You don't have permission to review complaints")
+        
+        complaint = get_object_or_404(ClientComplaint, pk=pk)
+        
+        if complaint.status != 'pending_review':
+            return Response({'error': 'يمكن مراجعة الشكاوى في حالة انتظار المراجعة فقط'}, status=400)
+        
+        status = request.data.get('status')
+        review_notes = request.data.get('review_notes', '')
+        rejection_reason = request.data.get('rejection_reason', '')
+        
+        if status not in ['approved', 'rejected']:
+            return Response({'error': 'حالة غير صالحة'}, status=400)
+        
+        if status == 'rejected' and not rejection_reason:
+            return Response({'error': 'سبب الرفض مطلوب'}, status=400)
+        
+        # Record status history
+        ClientComplaintStatusHistory.objects.create(
+            complaint=complaint,
+            old_status=complaint.status,
+            new_status=status,
+            changed_by=request.user,
+            reason=rejection_reason if status == 'rejected' else review_notes
+        )
+        
+        # Update complaint
+        complaint.status = status
+        complaint.reviewed_by = request.user
+        complaint.reviewed_at = timezone.now()
+        complaint.review_notes = review_notes
+        if status == 'rejected':
+            complaint.rejection_reason = rejection_reason
+        complaint.save()
+        
+        return Response({
+            'message': 'تم تحديث حالة الشكوى بنجاح',
+            'status': status,
+            'complaint_id': str(complaint.id)
+        })
+
+
+class ClientComplaintAssignmentView(APIView):
+    """View for assigning complaints to teams"""
+    permission_classes = [IsAuthenticated]
+    
+    @extend_schema(
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'team_id': {'type': 'string'},
+                    'notes': {'type': 'string'}
+                },
+                'required': ['team_id']
+            }
+        }
+    )
+    def post(self, request, pk):
+        if request.user.role not in ['admin', 'manager']:
+            raise PermissionDenied("Only admins and managers can assign complaints")
+        
+        complaint = get_object_or_404(ClientComplaint, pk=pk)
+        
+        if complaint.status not in ['approved', 'in_progress']:
+            return Response({'error': 'يمكن تخصيص الشكاوى المعتمدة أو قيد المعالجة فقط'}, status=400)
+        
+        team_id = request.data.get('team_id')
+        notes = request.data.get('notes', '')
+        
+        try:
+            team = Team.objects.get(id=team_id)
+        except Team.DoesNotExist:
+            return Response({'error': 'الفريق غير موجود'}, status=404)
+        
+        # Check if already assigned
+        existing_assignment = ClientComplaintAssignment.objects.filter(
+            complaint=complaint, team=team, is_active=True
+        ).first()
+        
+        if existing_assignment:
+            return Response({'error': 'تم تخصيص هذه الشكوى للفريق مسبقاً'}, status=400)
+        
+        # Create assignment
+        assignment = ClientComplaintAssignment.objects.create(
+            complaint=complaint,
+            team=team,
+            assigned_by=request.user,
+            notes=notes
+        )
+        
+        # Update complaint status if not already in progress
+        if complaint.status == 'approved':
+            ClientComplaintStatusHistory.objects.create(
+                complaint=complaint,
+                old_status=complaint.status,
+                new_status='in_progress',
+                changed_by=request.user,
+                reason=f"تم تخصيص الشكوى للفريق: {team.name}"
+            )
+            complaint.status = 'in_progress'
+            complaint.save()
+        
+        return Response({
+            'message': 'تم تخصيص الشكوى للفريق بنجاح',
+            'assignment_id': assignment.id,
+            'team_name': team.name
+        })
+
+
+class ClientComplaintEmployeeAssignmentView(APIView):
+    """View for assigning complaints to individual employees"""
+    permission_classes = [IsAuthenticated]
+    
+    @extend_schema(
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'employee_id': {'type': 'string'},
+                    'notes': {'type': 'string'}
+                },
+                'required': ['employee_id']
+            }
+        }
+    )
+    def post(self, request, pk):
+        if request.user.role not in ['admin', 'manager']:
+            raise PermissionDenied("Only admins and managers can assign complaints")
+        
+        complaint = get_object_or_404(ClientComplaint, pk=pk)
+        
+        if complaint.status not in ['approved', 'in_progress']:
+            return Response({'error': 'يمكن تخصيص الشكاوى المعتمدة أو قيد المعالجة فقط'}, status=400)
+        
+        employee_id = request.data.get('employee_id')
+        notes = request.data.get('notes', '')
+        
+        try:
+            employee = Employee.objects.get(id=employee_id)
+        except Employee.DoesNotExist:
+            return Response({'error': 'الموظف غير موجود'}, status=404)
+        
+        # Check if already assigned
+        existing_assignment = ClientComplaintEmployeeAssignment.objects.filter(
+            complaint=complaint, employee=employee, is_active=True
+        ).first()
+        
+        if existing_assignment:
+            return Response({'error': 'تم تخصيص هذه الشكوى للموظف مسبقاً'}, status=400)
+        
+        # Create assignment
+        assignment = ClientComplaintEmployeeAssignment.objects.create(
+            complaint=complaint,
+            employee=employee,
+            assigned_by=request.user,
+            notes=notes
+        )
+        
+        # Update complaint status if not already in progress
+        if complaint.status == 'approved':
+            ClientComplaintStatusHistory.objects.create(
+                complaint=complaint,
+                old_status=complaint.status,
+                new_status='in_progress',
+                changed_by=request.user,
+                reason=f"تم تخصيص الشكوى للموظف: {employee.name}"
+            )
+            complaint.status = 'in_progress'
+            complaint.save()
+        
+        return Response({
+            'message': 'تم تخصيص الشكوى للموظف بنجاح',
+            'assignment_id': assignment.id,
+            'employee_name': employee.name
+        })
+
+
+class ClientComplaintMultipleAssignmentView(APIView):
+    """View for assigning complaints to multiple teams and employees simultaneously"""
+    permission_classes = [IsAuthenticated]
+    
+    @extend_schema(
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'team_ids': {'type': 'array', 'items': {'type': 'string'}},
+                    'employee_ids': {'type': 'array', 'items': {'type': 'string'}},
+                    'notes': {'type': 'string'}
+                }
+            }
+        }
+    )
+    def post(self, request, pk):
+        if request.user.role not in ['admin', 'manager']:
+            raise PermissionDenied("Only admins and managers can assign complaints")
+        
+        complaint = get_object_or_404(ClientComplaint, pk=pk)
+        
+        if complaint.status not in ['approved', 'in_progress']:
+            return Response({'error': 'يمكن تخصيص الشكاوى المعتمدة أو قيد المعالجة فقط'}, status=400)
+        
+        team_ids = request.data.get('team_ids', [])
+        employee_ids = request.data.get('employee_ids', [])
+        notes = request.data.get('notes', '')
+        
+        if not team_ids and not employee_ids:
+            return Response({'error': 'يجب تحديد فريق واحد أو موظف واحد على الأقل'}, status=400)
+        
+        created_assignments = []
+        errors = []
+        
+        # Assign to teams
+        for team_id in team_ids:
+            try:
+                team = Team.objects.get(id=team_id)
+                existing_assignment = ClientComplaintAssignment.objects.filter(
+                    complaint=complaint, team=team, is_active=True
+                ).first()
+                
+                if not existing_assignment:
+                    assignment = ClientComplaintAssignment.objects.create(
+                        complaint=complaint,
+                        team=team,
+                        assigned_by=request.user,
+                        notes=notes
+                    )
+                    created_assignments.append({
+                        'type': 'team',
+                        'id': assignment.id,
+                        'name': team.name
+                    })
+                else:
+                    errors.append(f'الفريق {team.name} مخصص مسبقاً')
+            except Team.DoesNotExist:
+                errors.append(f'الفريق {team_id} غير موجود')
+        
+        # Assign to employees
+        for employee_id in employee_ids:
+            try:
+                employee = Employee.objects.get(id=employee_id)
+                existing_assignment = ClientComplaintEmployeeAssignment.objects.filter(
+                    complaint=complaint, employee=employee, is_active=True
+                ).first()
+                
+                if not existing_assignment:
+                    assignment = ClientComplaintEmployeeAssignment.objects.create(
+                        complaint=complaint,
+                        employee=employee,
+                        assigned_by=request.user,
+                        notes=notes
+                    )
+                    created_assignments.append({
+                        'type': 'employee',
+                        'id': assignment.id,
+                        'name': employee.name
+                    })
+                else:
+                    errors.append(f'الموظف {employee.name} مخصص مسبقاً')
+            except Employee.DoesNotExist:
+                errors.append(f'الموظف {employee_id} غير موجود')
+        
+        # Update complaint status if assignments were created
+        if created_assignments and complaint.status == 'approved':
+            assignment_names = [a['name'] for a in created_assignments]
+            ClientComplaintStatusHistory.objects.create(
+                complaint=complaint,
+                old_status=complaint.status,
+                new_status='in_progress',
+                changed_by=request.user,
+                reason=f"تم تخصيص الشكوى إلى: {', '.join(assignment_names)}"
+            )
+            complaint.status = 'in_progress'
+            complaint.save()
+        
+        return Response({
+            'message': 'تم إجراء التخصيصات',
+            'created_assignments': created_assignments,
+            'errors': errors,
+            'success_count': len(created_assignments)
+        })
+
+
+class ClientComplaintRemoveTeamAssignmentView(APIView):
+    """View for removing team assignment from a complaint"""
+    permission_classes = [IsAuthenticated]
+    
+    def delete(self, request, pk, assignment_id):
+        if not (request.user.role in ['admin', 'manager'] or has_complaint_admin_permission(request.user, 'can_manage_assignments')):
+            raise PermissionDenied("You don't have permission to remove assignments")
+        
+        complaint = get_object_or_404(ClientComplaint, pk=pk)
+        assignment = get_object_or_404(ClientComplaintAssignment, pk=assignment_id, complaint=complaint)
+        
+        # Mark assignment as inactive instead of deleting
+        assignment.is_active = False
+        assignment.save()
+        
+        # Add status history record
+        ClientComplaintStatusHistory.objects.create(
+            complaint=complaint,
+            old_status=complaint.status,
+            new_status=complaint.status,  # Status doesn't change
+            changed_by=request.user,
+            reason=f"تم إلغاء تخصيص الفريق: {assignment.team.name}"
+        )
+        
+        return Response({
+            'message': f'تم إلغاء تخصيص الفريق {assignment.team.name} بنجاح',
+            'assignment_id': assignment_id
+        })
+
+
+class ClientComplaintRemoveEmployeeAssignmentView(APIView):
+    """View for removing employee assignment from a complaint"""
+    permission_classes = [IsAuthenticated]
+    
+    def delete(self, request, pk, assignment_id):
+        if not (request.user.role in ['admin', 'manager'] or has_complaint_admin_permission(request.user, 'can_manage_assignments')):
+            raise PermissionDenied("You don't have permission to remove assignments")
+        
+        complaint = get_object_or_404(ClientComplaint, pk=pk)
+        assignment = get_object_or_404(ClientComplaintEmployeeAssignment, pk=assignment_id, complaint=complaint)
+        
+        # Mark assignment as inactive instead of deleting
+        assignment.is_active = False
+        assignment.save()
+        
+        # Add status history record
+        ClientComplaintStatusHistory.objects.create(
+            complaint=complaint,
+            old_status=complaint.status,
+            new_status=complaint.status,  # Status doesn't change
+            changed_by=request.user,
+            reason=f"تم إلغاء تخصيص الموظف: {assignment.employee.name}"
+        )
+        
+        return Response({
+            'message': f'تم إلغاء تخصيص الموظف {assignment.employee.name} بنجاح',
+            'assignment_id': assignment_id
+        })
+
+
+class ClientComplaintStatusViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing custom complaint statuses"""
+    queryset = ClientComplaintStatus.objects.all()
+    serializer_class = ClientComplaintStatusSerializer
+    permission_classes = [IsAuthenticated, IsAdminOrComplaintAdmin]
+    
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+    
+    @extend_schema(
+        responses={200: ClientComplaintStatusSerializer(many=True)}
+    )
+    @action(detail=False, methods=['get'], url_path='active')
+    def active_statuses(self, request):
+        """Get all active custom statuses"""
+        active_statuses = ClientComplaintStatus.objects.filter(is_active=True).order_by('display_order', 'name')
+        serializer = self.get_serializer(active_statuses, many=True)
+        return Response(serializer.data)
+    
+    @extend_schema(
+        responses={200: {
+            'type': 'object',
+            'properties': {
+                'default_statuses': {'type': 'array'},
+                'custom_statuses': {'type': 'array'},
+                'all_statuses': {'type': 'array'}
+            }
+        }}
+    )
+    @action(detail=False, methods=['get'], url_path='all-available')
+    def all_available_statuses(self, request):
+        """Get all available statuses (default + custom)"""
+        from .models import ClientComplaint
+        
+        # Get default statuses
+        default_statuses = [
+            {
+                'type': 'default',
+                'name': key,
+                'label': value,
+                'color': '#6b7280',
+                'id': key
+            }
+            for key, value in ClientComplaint.STATUS_CHOICES
+        ]
+        
+        # Get custom statuses
+        custom_statuses = []
+        for status in ClientComplaintStatus.objects.filter(is_active=True).order_by('display_order', 'name'):
+            custom_statuses.append({
+                'type': 'custom',
+                'name': status.name,
+                'label': status.label,
+                'color': status.color,
+                'id': status.id,
+                'description': status.description,
+                'is_final_status': status.is_final_status
+            })
+        
+        all_statuses = default_statuses + custom_statuses
+        
+        return Response({
+            'default_statuses': default_statuses,
+            'custom_statuses': custom_statuses,
+            'all_statuses': all_statuses
+        })
+
+
+class ClientComplaintStatusUpdateView(APIView):
+    """View for updating complaint status (supports both default and custom statuses)"""
+    permission_classes = [IsAuthenticated]
+    
+    @extend_schema(
+        request=ClientComplaintStatusUpdateSerializer,
+        responses={200: {
+            'type': 'object',
+            'properties': {
+                'message': {'type': 'string'},
+                'old_status': {'type': 'string'},
+                'new_status': {'type': 'string'},
+                'status_display': {'type': 'string'},
+                'status_color': {'type': 'string'}
+            }
+        }}
+    )
+    def post(self, request, pk):
+        complaint = get_object_or_404(ClientComplaint, pk=pk)
+        
+        # Check if user has permission to update this complaint
+        if request.user.role == 'admin':
+            # Admins can update any complaint
+            pass
+        elif has_complaint_admin_permission(request.user, 'can_update_status'):
+            # Users with complaint admin permission can update any complaint
+            pass
+        else:
+            # Check if user is in a team assigned to this complaint
+            user_teams = Team.objects.filter(memberships__employee__user=request.user)
+            assigned_teams = Team.objects.filter(
+                client_complaint_assignments__complaint=complaint,
+                client_complaint_assignments__is_active=True
+            )
+            
+            if not user_teams.filter(id__in=assigned_teams).exists():
+                raise PermissionDenied("ليس لديك صلاحية تحديث هذه الشكوى")
+        
+        # Validate input data
+        serializer = ClientComplaintStatusUpdateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({'errors': serializer.errors}, status=400)
+        
+        status_type = serializer.validated_data['status_type']
+        status_value = serializer.validated_data['status_value']
+        notes = serializer.validated_data.get('notes', '')
+        
+        # Store old status info
+        old_effective_status = complaint.effective_status
+        old_status_display = complaint.current_status_display
+        
+        # Check if complaint is already in the requested status
+        if status_type == 'default' and complaint.status == status_value and not complaint.custom_status:
+            return Response({'error': 'الشكوى في هذه الحالة مسبقاً'}, status=400)
+        elif status_type == 'custom' and complaint.custom_status and str(complaint.custom_status.id) == status_value:
+            return Response({'error': 'الشكوى في هذه الحالة مسبقاً'}, status=400)
+        
+        # Check if current status is final
+        if complaint.custom_status and complaint.custom_status.is_final_status:
+            return Response({'error': 'لا يمكن تغيير حالة الشكوى من حالة نهائية'}, status=400)
+        
+        try:
+            # Update complaint status using the model method
+            if status_type == 'custom':
+                complaint.update_status(None, custom_status_id=int(status_value), updated_by=request.user)
+            else:
+                complaint.update_status(status_value, updated_by=request.user)
+            
+            # Handle special cases for default statuses
+            if status_type == 'default':
+                if status_value == 'resolved':
+                    complaint.resolved_by = request.user
+                    complaint.resolved_at = timezone.now()
+                    if notes:
+                        complaint.resolution_notes = notes
+                    complaint.save()
+            
+            # Get updated status info
+            new_effective_status = complaint.effective_status
+            new_status_display = complaint.current_status_display
+            new_status_color = complaint.current_status_color
+            
+            return Response({
+                'message': 'تم تحديث حالة الشكوى بنجاح',
+                'old_status': old_effective_status,
+                'new_status': new_effective_status,
+                'status_display': new_status_display,
+                'status_color': new_status_color
+            })
+            
+        except ValueError as e:
+            return Response({'error': str(e)}, status=400)
+        except Exception as e:
+            return Response({'error': 'حدث خطأ أثناء تحديث الحالة'}, status=500)
+
+
+class ClientComplaintCommentViewSet(viewsets.ModelViewSet):
+    """ViewSet for managing complaint comments"""
+    serializer_class = ClientComplaintCommentSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        complaint_id = self.kwargs.get('complaint_pk')
+        return ClientComplaintComment.objects.filter(complaint_id=complaint_id)
+    
+    def destroy(self, request, *args, **kwargs):
+        comment = self.get_object()
+        user = request.user
+        # Admins can delete any comment
+        if user.role == 'admin':
+            return super().destroy(request, *args, **kwargs)
+        # Company users can delete their own comments
+        if comment.author == user:
+            return super().destroy(request, *args, **kwargs)
+        # Clients can delete their own replies (if using ClientComplaintReply model, handle separately)
+        # Otherwise, deny
+        from rest_framework.exceptions import PermissionDenied
+        raise PermissionDenied("You do not have permission to delete this comment.")
+    
+    def perform_create(self, serializer):
+        complaint_id = self.kwargs.get('complaint_pk')
+        complaint = get_object_or_404(ClientComplaint, pk=complaint_id)
+        
+        # Check if user has permission to comment on this complaint
+        if self.request.user.role == 'admin':
+            pass
+        else:
+            user_teams = Team.objects.filter(memberships__employee__user=self.request.user)
+            assigned_teams = Team.objects.filter(
+                client_complaint_assignments__complaint=complaint,
+                client_complaint_assignments__is_active=True
+            )
+            
+            if not user_teams.filter(id__in=assigned_teams).exists():
+                raise PermissionDenied("ليس لديك صلاحية التعليق على هذه الشكوى")
+        
+        serializer.save(complaint=complaint, author=self.request.user)
+        
+        # Automatic status transition - system/admin replied
+        from .ticket_automation import TicketStatusManager
+        from .notifications import NotificationService
+        TicketStatusManager.transition_on_system_response(complaint)
+        
+        # Send notification to client
+        try:
+            NotificationService.notify_new_system_message(complaint)
+        except Exception as e:
+            # Log but don't fail if notification fails
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f'Failed to send system message notification: {e}')
+
+
+class TeamComplaintDashboardView(generics.ListAPIView):
+    """Dashboard view for teams to see their assigned complaints"""
+    serializer_class = ClientComplaintSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+    
+    def get_queryset(self):
+        user_teams = Team.objects.filter(memberships__employee__user=self.request.user)
+        
+        queryset = ClientComplaint.objects.filter(
+            assignments__team__in=user_teams,
+            assignments__is_active=True
+        ).distinct().select_related(
+            'category', 'reviewed_by', 'resolved_by'
+        ).prefetch_related(
+            'attachments', 'assignments__team', 'tasks__task', 'comments__author', 'status_history__changed_by'
+        )
+        
+        # Filter by status if provided
+        status = self.request.query_params.get('status')
+        if status:
+            queryset = queryset.filter(status=status)
+        
+        # Filter by priority if provided
+        priority = self.request.query_params.get('priority')
+        if priority:
+            queryset = queryset.filter(priority=priority)
+        
+        # Filter by category if provided
+        category = self.request.query_params.get('category')
+        if category:
+            queryset = queryset.filter(category=category)
+        
+        return queryset.order_by('-created_at')
+
+
+class ComplaintDashboardStatsView(APIView):
+    """Dashboard statistics for client complaints"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        if request.user.role not in ['admin', 'manager']:
+            raise PermissionDenied("Only admins and managers can view dashboard stats")
+        
+        # Get all complaints or team-filtered complaints
+        if request.user.role == 'admin':
+            complaints = ClientComplaint.objects.all()
+        else:
+            user_teams = Team.objects.filter(memberships__employee__user=request.user)
+            complaints = ClientComplaint.objects.filter(
+                assignments__team__in=user_teams,
+                assignments__is_active=True
+            ).distinct()
+        
+        # Basic counts
+        total_complaints = complaints.count()
+        pending_review = complaints.filter(status='pending_review').count()
+        approved = complaints.filter(status='approved').count()
+        rejected = complaints.filter(status='rejected').count()
+        in_progress = complaints.filter(status='in_progress').count()
+        resolved = complaints.filter(status='resolved').count()
+        closed = complaints.filter(status='closed').count()
+        overdue_complaints = complaints.filter(status__in=['pending_review', 'approved', 'in_progress']).count()
+        urgent_complaints = complaints.filter(priority='urgent').count()
+        
+        # Recent complaints (last 10)
+        recent_complaints = complaints.select_related('category').order_by('-created_at')[:10]
+        recent_complaints_data = ClientComplaintSerializer(recent_complaints, many=True).data
+        
+        # Complaints by category
+        complaints_by_category = []
+        categories = ComplaintCategory.objects.filter(is_active=True)
+        for category in categories:
+            count = complaints.filter(category=category).count()
+            if count > 0:
+                complaints_by_category.append({
+                    'category_name': category.name,
+                    'count': count,
+                    'color': category.color
+                })
+        
+        # Complaints by priority
+        complaints_by_priority = [
+            {
+                'priority': 'urgent',
+                'count': complaints.filter(priority='urgent').count()
+            },
+            {
+                'priority': 'medium',
+                'count': complaints.filter(priority='medium').count()
+            },
+            {
+                'priority': 'low',
+                'count': complaints.filter(priority='low').count()
+            }
+        ]
+        
+        # Resolution times (simplified - would need more complex query for accurate times)
+        resolved_complaints = complaints.filter(status='resolved', resolved_at__isnull=False)
+        if resolved_complaints.exists():
+            # Calculate average resolution time in hours
+            total_time = 0
+            count = 0
+            for complaint in resolved_complaints:
+                if complaint.created_at and complaint.resolved_at:
+                    time_diff = complaint.resolved_at - complaint.created_at
+                    total_time += time_diff.total_seconds() / 3600  # Convert to hours
+                    count += 1
+            
+            avg_resolution = total_time / count if count > 0 else 0
+            resolution_times = {
+                'average_resolution_hours': round(avg_resolution, 2),
+                'fastest_resolution_hours': 1,  # Placeholder
+                'slowest_resolution_hours': round(avg_resolution * 2, 2)  # Placeholder
+            }
+        else:
+            resolution_times = {
+                'average_resolution_hours': 0,
+                'fastest_resolution_hours': 0,
+                'slowest_resolution_hours': 0
+            }
+        
+        return Response({
+            'total_complaints': total_complaints,
+            'pending_review': pending_review,
+            'approved': approved,
+            'rejected': rejected,
+            'in_progress': in_progress,
+            'resolved': resolved,
+            'closed': closed,
+            'overdue_complaints': overdue_complaints,
+            'urgent_complaints': urgent_complaints,
+            'recent_complaints': recent_complaints_data,
+            'complaints_by_category': complaints_by_category,
+            'complaints_by_priority': complaints_by_priority,
+            'resolution_times': resolution_times
+        })
+
+
+class ClientComplaintTaskCreateView(APIView):
+    """Create a task linked to a client complaint"""
+    permission_classes = [IsAuthenticated]
+    
+    @extend_schema(
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'complaint_id': {'type': 'string', 'format': 'uuid'},
+                    'task_id': {'type': 'string', 'format': 'uuid'},
+                    'team_id': {'type': 'string', 'format': 'uuid'},
+                    'title': {'type': 'string'},
+                    'description': {'type': 'string'},
+                    'priority': {'type': 'string', 'enum': ['low', 'medium', 'high', 'urgent']},
+                    'estimated_minutes': {'type': 'integer'},
+                    'notes': {'type': 'string'}
+                },
+                'required': ['complaint_id', 'team_id']
+            }
+        }
+    )
+    def post(self, request):
+        complaint_id = request.data.get('complaint_id')
+        task_id = request.data.get('task_id')
+        team_id = request.data.get('team_id')
+        notes = request.data.get('notes', '')
+        title = request.data.get('title')
+        description = request.data.get('description')
+        priority = request.data.get('priority', 'medium')
+        estimated_minutes = request.data.get('estimated_minutes')
+        
+        if not complaint_id or not team_id:
+            return Response(
+                {'error': 'complaint_id and team_id are required'}, 
+                status=rest_status.HTTP_400_BAD_REQUEST
+            )
+        
+        # If task_id is not provided, create a task - we'll use complaint data as defaults
+        
+        try:
+            # Verify complaint exists and user has permission
+            complaint = ClientComplaint.objects.get(id=complaint_id)
+            team = Team.objects.get(id=team_id)
+            
+            # Check permissions - user must be admin or member of the team
+            if request.user.role not in ['admin', 'manager']:
+                user_teams = Team.objects.filter(memberships__employee__user=request.user)
+                if not user_teams.filter(id=team_id).exists():
+                    raise PermissionDenied("You can only create/link tasks to complaints for teams you're a member of")
+            
+            # Check if complaint is assigned to this team
+            if not complaint.assignments.filter(team_id=team_id, is_active=True).exists():
+                return Response(
+                    {'error': 'Complaint is not assigned to this team'}, 
+                    status=rest_status.HTTP_400_BAD_REQUEST
+                )
+            
+            if task_id:
+                # Link existing task to complaint
+                task = Task.objects.get(id=task_id)
+                
+                # Check if task already linked to a complaint
+                if hasattr(task, 'client_complaint_task'):
+                    return Response(
+                        {'error': 'Task is already linked to a complaint'}, 
+                        status=rest_status.HTTP_400_BAD_REQUEST
+                    )
+            else:
+                # Create new task from complaint
+                # Use complaint title and description as defaults if not provided
+                if not title:
+                    title = f"Task for complaint: {complaint.title}"
+                if not description:
+                    description = complaint.description
+                if priority is None:
+                    priority = 'medium'
+                if estimated_minutes is None:
+                    estimated_minutes = 60  # Default to 1 hour
+                    
+                # Assign to team leader by default, or first active member if no leader
+                employee_to_assign = team.team_leader
+                if not employee_to_assign:
+                    # Get first active team member
+                    first_member = team.memberships.filter(is_active=True).first()
+                    if first_member:
+                        employee_to_assign = first_member.employee
+                    else:
+                        return Response(
+                            {'error': 'Team has no active members to assign task to'}, 
+                            status=rest_status.HTTP_400_BAD_REQUEST
+                        )
+                
+                task = Task.objects.create(
+                    title=title,
+                    description=description,
+                    priority=priority,
+                    estimated_minutes=estimated_minutes,
+                    notes=notes,
+                    created_by=request.user,
+                    team=team,
+                    employee=employee_to_assign
+                )
+            
+            # Create the complaint task link
+            complaint_task = ClientComplaintTask.objects.create(
+                complaint=complaint,
+                task=task,
+                team=team,
+                created_by=request.user,
+                notes=notes
+            )
+            
+            message = 'Task successfully linked to complaint' if task_id else 'Task created and linked to complaint'
+            
+            return Response({
+                'message': message,
+                'complaint_task_id': str(complaint_task.id),
+                'task_id': str(task.id),
+                'complaint_title': complaint.title,
+                'task_title': task.title,
+                'team_name': team.name
+            }, status=rest_status.HTTP_201_CREATED)
+            
+        except ClientComplaint.DoesNotExist:
+            return Response(
+                {'error': 'Complaint not found'}, 
+                status=rest_status.HTTP_404_NOT_FOUND
+            )
+        except Task.DoesNotExist:
+            return Response(
+                {'error': 'Task not found'}, 
+                status=rest_status.HTTP_404_NOT_FOUND
+            )
+        except Team.DoesNotExist:
+            return Response(
+                {'error': 'Team not found'}, 
+                status=rest_status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {'error': str(e)}, 
+                status=rest_status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class CreateTaskForComplaintView(APIView):
+    """Create a new task and link it to a client complaint"""
+    permission_classes = [IsAuthenticated]
+    
+    @extend_schema(
+        request={
+            'application/json': {
+                'type': 'object',
+                'properties': {
+                    'complaint_id': {'type': 'string', 'format': 'uuid'},
+                    'team_id': {'type': 'string', 'format': 'uuid'},
+                    'title': {'type': 'string'},
+                    'description': {'type': 'string'},
+                    'priority': {'type': 'string', 'enum': ['low', 'medium', 'high', 'urgent']},
+                    'estimated_minutes': {'type': 'integer'},
+                    'notes': {'type': 'string'}
+                },
+                'required': ['complaint_id', 'team_id', 'title', 'description']
+            }
+        }
+    )
+    def post(self, request):
+        complaint_id = request.data.get('complaint_id')
+        team_id = request.data.get('team_id')
+        title = request.data.get('title')
+        description = request.data.get('description')
+        priority = request.data.get('priority', 'medium')
+        estimated_minutes = request.data.get('estimated_minutes')
+        notes = request.data.get('notes', '')
+        
+        if not all([complaint_id, team_id, title, description]):
+            return Response(
+                {'error': 'complaint_id, team_id, title, and description are required'}, 
+                status=rest_status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            # Verify complaint exists and user has permission
+            complaint = ClientComplaint.objects.get(id=complaint_id)
+            team = Team.objects.get(id=team_id)
+            
+            # Check permissions - user must be admin or member of the team
+            if request.user.role not in ['admin', 'manager']:
+                user_teams = Team.objects.filter(memberships__employee__user=request.user)
+                if not user_teams.filter(id=team_id).exists():
+                    raise PermissionDenied("You can only create tasks for teams you're a member of")
+            
+            # Check if complaint is assigned to this team
+            if not complaint.assignments.filter(team_id=team_id, is_active=True).exists():
+                return Response(
+                    {'error': 'Complaint is not assigned to this team'}, 
+                    status=rest_status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Create the task
+            task = Task.objects.create(
+                title=title,
+                description=description,
+                priority=priority,
+                estimated_minutes=estimated_minutes,
+                notes=notes,
+                created_by=request.user,
+                team=team
+            )
+            
+            # Create the complaint task link
+            complaint_task = ClientComplaintTask.objects.create(
+                complaint=complaint,
+                task=task,
+                team=team,
+                created_by=request.user,
+                notes=notes
+            )
+            
+            return Response({
+                'message': 'Task created and linked to complaint successfully',
+                'task_id': str(task.id),
+                'complaint_task_id': str(complaint_task.id),
+                'complaint_title': complaint.title,
+                'task_title': task.title,
+                'team_name': team.name
+            }, status=rest_status.HTTP_201_CREATED)
+            
+        except ClientComplaint.DoesNotExist:
+            return Response(
+                {'error': 'Complaint not found'}, 
+                status=rest_status.HTTP_404_NOT_FOUND
+            )
+        except Team.DoesNotExist:
+            return Response(
+                {'error': 'Team not found'}, 
+                status=rest_status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {'error': str(e)}, 
+                status=rest_status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+
+# Complaint Admin Permission Management Views
+class TeamComplaintAdminPermissionView(APIView):
+    """View for managing complaint admin permissions for teams"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """List all team complaint admin permissions"""
+        if request.user.role != 'admin':
+            raise PermissionDenied("Only admins can view complaint admin permissions")
+        
+        permissions = TeamComplaintAdminPermission.objects.select_related('team', 'granted_by').all()
+        data = []
+        for perm in permissions:
+            data.append({
+                'id': perm.id,
+                'team': {
+                    'id': perm.team.id,
+                    'name': perm.team.name
+                },
+                'granted_by': perm.granted_by.username,
+                'granted_at': perm.granted_at,
+                'is_active': perm.is_active,
+                'notes': perm.notes,
+                'permissions': {
+                    'can_review': perm.can_review,
+                    'can_assign': perm.can_assign,
+                    'can_update_status': perm.can_update_status,
+                    'can_add_comments': perm.can_add_comments,
+                    'can_create_tasks': perm.can_create_tasks,
+                    'can_manage_assignments': perm.can_manage_assignments
+                }
+            })
+        return Response(data)
+    
+    def post(self, request):
+        """Grant complaint admin permissions to a team"""
+        if request.user.role != 'admin':
+            raise PermissionDenied("Only admins can grant complaint admin permissions")
+        
+        team_id = request.data.get('team_id')
+        if not team_id:
+            return Response({'error': 'Team ID is required'}, status=400)
+        
+        try:
+            team = Team.objects.get(id=team_id)
+        except Team.DoesNotExist:
+            return Response({'error': 'Team not found'}, status=404)
+        
+        # Check if permission already exists
+        existing_permission = TeamComplaintAdminPermission.objects.filter(team=team).first()
+        if existing_permission:
+            # Update existing permission
+            for key, value in request.data.items():
+                if hasattr(existing_permission, key) and key not in ['team_id', 'granted_by', 'granted_at']:
+                    setattr(existing_permission, key, value)
+            existing_permission.is_active = True
+            existing_permission.granted_by = request.user
+            existing_permission.granted_at = timezone.now()
+            existing_permission.save()
+            
+            return Response({
+                'message': f'Complaint admin permissions updated for team {team.name}',
+                'permission_id': existing_permission.id
+            })
+        else:
+            # Create new permission
+            permission_data = {
+                'team': team,
+                'granted_by': request.user,
+                'notes': request.data.get('notes', ''),
+                'can_review': request.data.get('can_review', True),
+                'can_assign': request.data.get('can_assign', True),
+                'can_update_status': request.data.get('can_update_status', True),
+                'can_add_comments': request.data.get('can_add_comments', True),
+                'can_create_tasks': request.data.get('can_create_tasks', True),
+                'can_manage_assignments': request.data.get('can_manage_assignments', True)
+            }
+            
+            permission = TeamComplaintAdminPermission.objects.create(**permission_data)
+            
+            return Response({
+                'message': f'Complaint admin permissions granted to team {team.name}',
+                'permission_id': permission.id
+            }, status=201)
+    
+    def delete(self, request, pk):
+        """Revoke complaint admin permissions from a team"""
+        if request.user.role != 'admin':
+            raise PermissionDenied("Only admins can revoke complaint admin permissions")
+        
+        try:
+            permission = TeamComplaintAdminPermission.objects.get(pk=pk)
+            team_name = permission.team.name
+            permission.is_active = False
+            permission.save()
+            
+            return Response({
+                'message': f'Complaint admin permissions revoked from team {team_name}'
+            })
+        except TeamComplaintAdminPermission.DoesNotExist:
+            return Response({'error': 'Permission not found'}, status=404)
+
+
+class EmployeeComplaintAdminPermissionView(APIView):
+    """View for managing complaint admin permissions for individual employees"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """List all employee complaint admin permissions"""
+        if request.user.role != 'admin':
+            raise PermissionDenied("Only admins can view complaint admin permissions")
+        
+        permissions = EmployeeComplaintAdminPermission.objects.select_related('employee', 'employee__user', 'granted_by').all()
+        data = []
+        for perm in permissions:
+            data.append({
+                'id': perm.id,
+                'employee': {
+                    'id': perm.employee.id,
+                    'name': perm.employee.name,
+                    'username': perm.employee.user.username if perm.employee.user else None,
+                    'position': perm.employee.position,
+                    'department': perm.employee.department
+                },
+                'granted_by': perm.granted_by.username,
+                'granted_at': perm.granted_at,
+                'is_active': perm.is_active,
+                'notes': perm.notes,
+                'permissions': {
+                    'can_review': perm.can_review,
+                    'can_assign': perm.can_assign,
+                    'can_update_status': perm.can_update_status,
+                    'can_add_comments': perm.can_add_comments,
+                    'can_create_tasks': perm.can_create_tasks,
+                    'can_manage_assignments': perm.can_manage_assignments
+                }
+            })
+        return Response(data)
+    
+    def post(self, request):
+        """Grant complaint admin permissions to an employee"""
+        if request.user.role != 'admin':
+            raise PermissionDenied("Only admins can grant complaint admin permissions")
+        
+        employee_id = request.data.get('employee_id')
+        if not employee_id:
+            return Response({'error': 'Employee ID is required'}, status=400)
+        
+        try:
+            employee = Employee.objects.get(id=employee_id)
+        except Employee.DoesNotExist:
+            return Response({'error': 'Employee not found'}, status=404)
+        
+        # Check if permission already exists
+        existing_permission = EmployeeComplaintAdminPermission.objects.filter(employee=employee).first()
+        if existing_permission:
+            # Update existing permission
+            for key, value in request.data.items():
+                if hasattr(existing_permission, key) and key not in ['employee_id', 'granted_by', 'granted_at']:
+                    setattr(existing_permission, key, value)
+            existing_permission.is_active = True
+            existing_permission.granted_by = request.user
+            existing_permission.granted_at = timezone.now()
+            existing_permission.save()
+            
+            return Response({
+                'id': existing_permission.id,
+                'employee': {
+                    'id': employee.id,
+                    'name': employee.name,
+                    'username': employee.user.username if employee.user else None,
+                    'position': employee.position,
+                    'department': employee.department
+                },
+                'granted_by': request.user.username,
+                'granted_at': existing_permission.granted_at,
+                'is_active': existing_permission.is_active,
+                'notes': existing_permission.notes,
+                'permissions': {
+                    'can_review': existing_permission.can_review,
+                    'can_assign': existing_permission.can_assign,
+                    'can_update_status': existing_permission.can_update_status,
+                    'can_add_comments': existing_permission.can_add_comments,
+                    'can_create_tasks': existing_permission.can_create_tasks,
+                    'can_manage_assignments': existing_permission.can_manage_assignments
+                }
+            })
+        else:
+            # Create new permission
+            permission_data = {
+                'employee': employee,
+                'granted_by': request.user,
+                'notes': request.data.get('notes', ''),
+                'can_review': request.data.get('can_review', True),
+                'can_assign': request.data.get('can_assign', True),
+                'can_update_status': request.data.get('can_update_status', True),
+                'can_add_comments': request.data.get('can_add_comments', True),
+                'can_create_tasks': request.data.get('can_create_tasks', True),
+                'can_manage_assignments': request.data.get('can_manage_assignments', True)
+            }
+            
+            permission = EmployeeComplaintAdminPermission.objects.create(**permission_data)
+            
+            return Response({
+                'id': permission.id,
+                'employee': {
+                    'id': employee.id,
+                    'name': employee.name,
+                    'username': employee.user.username if employee.user else None,
+                    'position': employee.position,
+                    'department': employee.department
+                },
+                'granted_by': request.user.username,
+                'granted_at': permission.granted_at,
+                'is_active': permission.is_active,
+                'notes': permission.notes,
+                'permissions': {
+                    'can_review': permission.can_review,
+                    'can_assign': permission.can_assign,
+                    'can_update_status': permission.can_update_status,
+                    'can_add_comments': permission.can_add_comments,
+                    'can_create_tasks': permission.can_create_tasks,
+                    'can_manage_assignments': permission.can_manage_assignments
+                }
+            }, status=201)
+    
+    def delete(self, request, pk):
+        """Revoke complaint admin permissions from an employee"""
+        if request.user.role != 'admin':
+            raise PermissionDenied("Only admins can revoke complaint admin permissions")
+        
+        try:
+            permission = EmployeeComplaintAdminPermission.objects.get(pk=pk)
+            employee_name = permission.employee.name
+            permission.is_active = False
+            permission.save()
+            
+            return Response({
+                'message': f'Complaint admin permissions revoked from employee {employee_name}'
+            })
+        except EmployeeComplaintAdminPermission.DoesNotExist:
+            return Response({'error': 'Permission not found'}, status=404)
+
+
+class UserComplaintAdminPermissionsView(APIView):
+    """View to get current user's complaint admin permissions"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """Get complaint admin permissions for current user"""
+        permissions = get_complaint_admin_permissions(request.user)
+        return Response(permissions)
+
+
+# ==================== Ticket Automation Views ====================
+
+class TicketDelayThresholdViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing ticket delay thresholds
+    Admin users can view, create, update thresholds
+    """
+    serializer_class = TicketDelayThresholdSerializer
+    permission_classes = [IsAuthenticated]
+    queryset = TicketDelayThreshold.objects.all()
+    
+    def get_queryset(self):
+        # Admin can see all thresholds
+        if self.request.user.role == 'admin':
+            queryset = TicketDelayThreshold.objects.all()
+        else:
+            # Regular users can only view active thresholds
+            queryset = TicketDelayThreshold.objects.filter(is_active=True)
+        
+        # Filter by threshold type if specified
+        threshold_type = self.request.query_params.get('threshold_type')
+        if threshold_type:
+            queryset = queryset.filter(threshold_type=threshold_type)
+        
+        # Filter by priority if specified
+        priority = self.request.query_params.get('priority')
+        if priority:
+            queryset = queryset.filter(priority=priority)
+        
+        return queryset.order_by('threshold_type', 'priority')
+    
+    def perform_create(self, serializer):
+        # Only admins can create thresholds
+        if self.request.user.role != 'admin':
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only admins can create thresholds")
+        serializer.save()
+    
+    def perform_update(self, serializer):
+        # Only admins can update thresholds
+        if self.request.user.role != 'admin':
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only admins can update thresholds")
+        serializer.save()
+    
+    def perform_destroy(self, instance):
+        # Only admins can delete thresholds
+        if self.request.user.role != 'admin':
+            from rest_framework.exceptions import PermissionDenied
+            raise PermissionDenied("Only admins can delete thresholds")
+        # Soft delete instead of hard delete
+        instance.is_active = False
+        instance.save()
+
+
+class TicketAutomationStatsView(APIView):
+    """
+    Get statistics about automated ticket management
+    Shows delayed tickets, auto-closed tickets, etc.
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        from .ticket_automation import TicketStatusManager
+        
+        # Get all active complaints
+        all_complaints = ClientComplaint.objects.exclude(
+            status='closed',
+            automated_status=TicketStatusManager.STATUS_AUTO_CLOSED
+        )
+        
+        # Count tickets by delay status
+        stats = {
+            'total_active_tickets': all_complaints.count(),
+            'waiting_for_system': all_complaints.filter(
+                automated_status=TicketStatusManager.STATUS_WAITING_SYSTEM
+            ).count(),
+            'waiting_for_client': all_complaints.filter(
+                automated_status=TicketStatusManager.STATUS_WAITING_CLIENT
+            ).count(),
+            'delayed_by_system': all_complaints.filter(
+                delay_status=TicketStatusManager.STATUS_DELAYED_SYSTEM
+            ).count(),
+            'delayed_by_client': all_complaints.filter(
+                delay_status=TicketStatusManager.STATUS_DELAYED_CLIENT
+            ).count(),
+            'resolved_pending_confirmation': all_complaints.filter(
+                automated_status=TicketStatusManager.STATUS_RESOLVED_PENDING
+            ).count(),
+            'reopened': all_complaints.filter(
+                automated_status=TicketStatusManager.STATUS_REOPENED
+            ).count(),
+        }
+        
+        # Get recently auto-closed tickets
+        from django.utils import timezone
+        from datetime import timedelta
+        last_24h = timezone.now() - timedelta(hours=24)
+        
+        stats['auto_closed_last_24h'] = ClientComplaint.objects.filter(
+            automated_status=TicketStatusManager.STATUS_AUTO_CLOSED,
+            updated_at__gte=last_24h
+        ).count()
+        
+        return Response(stats)
+
+
+class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
+    """
+    ViewSet for managing in-app notifications
+    Provides endpoints for listing, reading, and marking notifications
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        """Return notifications for the authenticated user"""
+        from hr_management.models import Notification
+        return Notification.objects.filter(recipient=self.request.user)
+    
+    def get_serializer_class(self):
+        """Return the appropriate serializer"""
+        from hr_management.serializers import NotificationSerializer
+        return NotificationSerializer
+    
+    @action(detail=False, methods=['get'])
+    def unread_count(self, request):
+        """Get count of unread notifications"""
+        count = self.get_queryset().filter(is_read=False).count()
+        return Response({'unread_count': count})
+    
+    @action(detail=True, methods=['post'])
+    def mark_as_read(self, request, pk=None):
+        """Mark a single notification as read"""
+        notification = self.get_object()
+        notification.mark_as_read()
+        serializer = self.get_serializer(notification)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['post'])
+    def mark_all_as_read(self, request):
+        """Mark all notifications as read"""
+        updated = self.get_queryset().filter(is_read=False).update(
+            is_read=True,
+            read_at=timezone.now()
+        )
+        return Response({
+            'message': 'All notifications marked as read',
+            'updated_count': updated
+        })
+    
+    @action(detail=False, methods=['get'])
+    def unread(self, request):
+        """Get only unread notifications"""
+        queryset = self.get_queryset().filter(is_read=False)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+
+# ========== Shift Scheduling System ViewSets ==========
+
+class WeeklyShiftScheduleViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing weekly shift schedules
+    """
+    queryset = WeeklyShiftSchedule.objects.all()
+    serializer_class = WeeklyShiftScheduleSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_fields = ['employee', 'day_of_week', 'is_active']
+    search_fields = ['employee__name']
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filter by employee if specified
+        employee_id = self.request.query_params.get('employee_id')
+        if employee_id:
+            queryset = queryset.filter(employee_id=employee_id)
+        
+        # Filter by department
+        department = self.request.query_params.get('department')
+        if department:
+            queryset = queryset.filter(employee__department=department)
+        
+        return queryset.select_related('employee')
+    
+    @action(detail=False, methods=['post'])
+    def bulk_create(self, request):
+        """
+        Create a full week schedule for an employee
+        POST /api/shifts/schedules/bulk_create/
+        Body: {
+            "employee": "employee-uuid",
+            "schedules": [
+                {"day_of_week": 0, "start_time": "09:00", "end_time": "17:00"},
+                ...
+            ]
+        }
+        """
+        serializer = BulkWeeklyScheduleSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        schedules = serializer.save()
+        
+        output_serializer = WeeklyShiftScheduleSerializer(schedules, many=True)
+        return Response(output_serializer.data, status=status.HTTP_201_CREATED)
+    
+    @action(detail=False, methods=['get'])
+    def employee_schedule(self, request):
+        """
+        Get the full week schedule for an employee
+        GET /api/shifts/schedules/employee_schedule/?employee_id=<uuid>
+        """
+        employee_id = request.query_params.get('employee_id')
+        if not employee_id:
+            return Response(
+                {'error': 'employee_id parameter is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        schedules = WeeklyShiftSchedule.objects.filter(
+            employee_id=employee_id,
+            is_active=True
+        ).order_by('day_of_week')
+        
+        serializer = self.get_serializer(schedules, many=True)
+        total_hours = calculate_weekly_hours(employee_id)
+        
+        return Response({
+            'schedules': serializer.data,
+            'total_weekly_hours': total_hours
+        })
+    
+    @action(detail=False, methods=['get'])
+    def department_schedules(self, request):
+        """
+        Get all schedules for a department
+        GET /api/shifts/schedules/department_schedules/?department=<name>&day_of_week=0
+        """
+        department = request.query_params.get('department')
+        day_of_week = request.query_params.get('day_of_week')
+        
+        if not department:
+            return Response(
+                {'error': 'department parameter is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        queryset = WeeklyShiftSchedule.objects.filter(
+            employee__department=department,
+            is_active=True
+        )
+        
+        if day_of_week is not None:
+            queryset = queryset.filter(day_of_week=int(day_of_week))
+        
+        schedules = queryset.select_related('employee').order_by('day_of_week', 'start_time')
+        serializer = self.get_serializer(schedules, many=True)
+        
+        return Response(serializer.data)
+
+
+class ShiftOverrideViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing shift overrides (vacations, day offs, custom shifts)
+    """
+    queryset = ShiftOverride.objects.all()
+    serializer_class = ShiftOverrideSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_fields = ['employee', 'date', 'override_type', 'status']
+    search_fields = ['employee__name', 'reason']
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filter by date range
+        start_date = self.request.query_params.get('start_date')
+        end_date = self.request.query_params.get('end_date')
+        
+        if start_date:
+            queryset = queryset.filter(date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(date__lte=end_date)
+        
+        # Filter by employee
+        employee_id = self.request.query_params.get('employee_id')
+        if employee_id:
+            queryset = queryset.filter(employee_id=employee_id)
+        
+        return queryset.select_related('employee', 'requested_by', 'approved_by')
+    
+    def perform_create(self, serializer):
+        serializer.save(requested_by=self.request.user)
+    
+    @action(detail=True, methods=['post'])
+    def approve(self, request, pk=None):
+        """
+        Approve a shift override request
+        POST /api/shifts/overrides/<id>/approve/
+        """
+        override = self.get_object()
+        override.approve(request.user)
+        
+        serializer = self.get_serializer(override)
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['post'])
+    def reject(self, request, pk=None):
+        """
+        Reject a shift override request
+        POST /api/shifts/overrides/<id>/reject/
+        """
+        override = self.get_object()
+        override.reject(request.user)
+        
+        serializer = self.get_serializer(override)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def pending(self, request):
+        """
+        Get all pending override requests
+        GET /api/shifts/overrides/pending/
+        """
+        pending_overrides = self.get_queryset().filter(status='pending').order_by('date')
+        serializer = self.get_serializer(pending_overrides, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['post'])
+    def bulk_create_vacation(self, request):
+        """
+        Create vacation override for multiple days
+        POST /api/shifts/overrides/bulk_create_vacation/
+        Body: {
+            "employee": "employee-uuid",
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-05",
+            "reason": "Annual vacation"
+        }
+        """
+        employee_id = request.data.get('employee')
+        start_date_str = request.data.get('start_date')
+        end_date_str = request.data.get('end_date')
+        reason = request.data.get('reason', '')
+        
+        if not employee_id or not start_date_str or not end_date_str:
+            return Response(
+                {'error': 'employee, start_date, and end_date are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        start_date = datetime.datetime.strptime(start_date_str, '%Y-%m-%d').date()
+        end_date = datetime.datetime.strptime(end_date_str, '%Y-%m-%d').date()
+        
+        employee = Employee.objects.get(id=employee_id)
+        created_overrides = []
+        
+        current_date = start_date
+        while current_date <= end_date:
+            override, created = ShiftOverride.objects.get_or_create(
+                employee=employee,
+                date=current_date,
+                defaults={
+                    'override_type': 'vacation',
+                    'reason': reason,
+                    'requested_by': request.user,
+                    'status': 'pending'
+                }
+            )
+            created_overrides.append(override)
+            current_date += timedelta(days=1)
+        
+        serializer = self.get_serializer(created_overrides, many=True)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class ShiftAttendanceViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing shift attendance records
+    """
+    queryset = ShiftAttendance.objects.all()
+    serializer_class = ShiftAttendanceSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_fields = ['employee', 'date', 'status']
+    search_fields = ['employee__name']
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filter by date range
+        start_date = self.request.query_params.get('start_date')
+        end_date = self.request.query_params.get('end_date')
+        
+        if start_date:
+            queryset = queryset.filter(date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(date__lte=end_date)
+        
+        # Filter by employee
+        employee_id = self.request.query_params.get('employee_id')
+        if employee_id:
+            queryset = queryset.filter(employee_id=employee_id)
+        
+        # Filter by department
+        department = self.request.query_params.get('department')
+        if department:
+            queryset = queryset.filter(employee__department=department)
+        
+        return queryset.select_related('employee', 'approved_by')
+    
+    @action(detail=False, methods=['post'])
+    def clock_in(self, request):
+        """
+        Clock in for current shift
+        POST /api/shifts/attendance/clock_in/
+        Body: {
+            "employee": "employee-uuid",
+            "clock_in_time": "09:15" (optional)
+        }
+        """
+        serializer = ClockInSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        employee = serializer.validated_data['employee']
+        clock_in_time = serializer.validated_data.get('clock_in_time') or timezone.now().time()
+        notes = serializer.validated_data.get('notes', '')
+        
+        today = timezone.now().date()
+        
+        # Get expected shift
+        shift = get_employee_shift_for_date(employee.id, today)
+        if not shift:
+            return Response(
+                {'error': f'لا يوجد دوام مجدول لـ {employee.name} اليوم'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Create or get attendance record
+        attendance, created = ShiftAttendance.objects.get_or_create(
+            employee=employee,
+            date=today,
+            defaults={
+                'expected_start': shift['start_time'],
+                'expected_end': shift['end_time']
+            }
+        )
+        
+        # Clock in
+        try:
+            attendance.clock_in(clock_in_time)
+            if notes:
+                attendance.notes = notes
+                attendance.save()
+            
+            output_serializer = ShiftAttendanceSerializer(attendance)
+            return Response(output_serializer.data)
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=False, methods=['post'])
+    def clock_out(self, request):
+        """
+        Clock out from current shift
+        POST /api/shifts/attendance/clock_out/
+        Body: {
+            "employee": "employee-uuid",
+            "clock_out_time": "17:30" (optional)
+        }
+        """
+        serializer = ClockOutSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        
+        employee = serializer.validated_data['employee']
+        clock_out_time = serializer.validated_data.get('clock_out_time') or timezone.now().time()
+        notes = serializer.validated_data.get('notes', '')
+        
+        today = timezone.now().date()
+        
+        try:
+            attendance = ShiftAttendance.objects.get(employee=employee, date=today)
+        except ShiftAttendance.DoesNotExist:
+            return Response(
+                {'error': 'لا يوجد سجل حضور. يرجى تسجيل الدخول أولاً.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            attendance.clock_out(clock_out_time)
+            if notes:
+                attendance.notes = notes
+                attendance.save()
+            
+            output_serializer = ShiftAttendanceSerializer(attendance)
+            return Response(output_serializer.data)
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=False, methods=['get'])
+    def current_status(self, request):
+        """
+        Get current shift status for all employees or specific employee
+        GET /api/shifts/attendance/current_status/?employee_id=<uuid>
+        """
+        employee_id = request.query_params.get('employee_id')
+        
+        if employee_id:
+            # Single employee status
+            try:
+                employee = Employee.objects.get(id=employee_id)
+            except Employee.DoesNotExist:
+                return Response({'error': 'موظف غير موجود'}, status=status.HTTP_404_NOT_FOUND)
+                
+            today = timezone.now().date()
+            current_time = timezone.now().time()
+            
+            shift = get_employee_shift_for_date(employee_id, today)
+            
+            if shift:
+                # Check actual attendance from WorkShift (old system)
+                try:
+                    # Get today's work shifts
+                    today_shifts = WorkShift.objects.filter(
+                        employee=employee,
+                        check_in__date=today
+                    ).order_by('check_in')
+                    
+                    latest_shift = today_shifts.last()
+                    active_shift = today_shifts.filter(check_out__isnull=True).first()
+                    
+                    has_clocked_in = latest_shift is not None
+                    clock_in_time = latest_shift.check_in.time() if latest_shift else None
+                    
+                    # Get attendance status
+                    try:
+                        attendance_record = EmployeeAttendance.objects.get(employee=employee, date=today)
+                        att_status = attendance_record.get_status_display()
+                        
+                        # Calculate late minutes if late
+                        if attendance_record.status == 'late' and clock_in_time:
+                            expected_start = shift['start_time']
+                            check_in_dt = timezone.datetime.combine(today, clock_in_time)
+                            expected_dt = timezone.datetime.combine(today, expected_start)
+                            late_minutes = int((check_in_dt - expected_dt).total_seconds() / 60)
+                        else:
+                            late_minutes = 0
+                    except EmployeeAttendance.DoesNotExist:
+                        att_status = 'لم يسجل دخول'
+                        late_minutes = 0
+                    
+                except Exception as e:
+                    has_clocked_in = False
+                    clock_in_time = None
+                    att_status = 'لم يسجل دخول'
+                    late_minutes = 0
+                
+                data = {
+                    'employee_id': str(employee.id),
+                    'employee_name': employee.name,
+                    'is_on_shift': shift['start_time'] <= current_time <= shift['end_time'],
+                    'shift_start': shift['start_time'].strftime('%H:%M'),
+                    'shift_end': shift['end_time'].strftime('%H:%M'),
+                    'has_clocked_in': has_clocked_in,
+                    'clock_in_time': clock_in_time.strftime('%H:%M') if clock_in_time else None,
+                    'clock_out_time': today_shift.check_out.strftime('%H:%M') if has_clocked_in and today_shift.check_out else None,
+                    'status': att_status,
+                    'late_minutes': late_minutes
+                }
+            else:
+                data = {
+                    'employee_id': str(employee.id),
+                    'employee_name': employee.name,
+                    'is_on_shift': False,
+                    'shift_start': None,
+                    'shift_end': None,
+                    'has_clocked_in': False,
+                    'clock_in_time': None,
+                    'status': 'عطلة',
+                    'late_minutes': 0
+                }
+            
+            return Response(data)
+        else:
+            # All employees currently on shift
+            employees_on_shift = get_employees_on_shift_now()
+            
+            status_data = []
+            today = timezone.now().date()
+            
+            for emp_shift in employees_on_shift:
+                employee = emp_shift['employee']
+                
+                # Check actual attendance from WorkShift (old system)
+                try:
+                    today_shifts = WorkShift.objects.filter(
+                        employee=employee,
+                        check_in__date=today
+                    ).order_by('check_in')
+                    
+                    latest_shift = today_shifts.last()
+                    
+                    has_clocked_in = latest_shift is not None
+                    clock_in_time = latest_shift.check_in.time() if latest_shift else None
+                    
+                    # Get attendance status
+                    try:
+                        attendance_record = EmployeeAttendance.objects.get(employee=employee, date=today)
+                        att_status = attendance_record.get_status_display()
+                        
+                        # Calculate late minutes if late
+                        if attendance_record.status == 'late' and clock_in_time:
+                            expected_start = emp_shift['start_time']
+                            check_in_dt = timezone.datetime.combine(today, clock_in_time)
+                            expected_dt = timezone.datetime.combine(today, expected_start)
+                            late_minutes = int((check_in_dt - expected_dt).total_seconds() / 60)
+                        else:
+                            late_minutes = 0
+                    except EmployeeAttendance.DoesNotExist:
+                        att_status = 'لم يسجل دخول'
+                        late_minutes = 0
+                        
+                except Exception as e:
+                    has_clocked_in = False
+                    clock_in_time = None
+                    att_status = 'لم يسجل دخول'
+                    late_minutes = 0
+                
+                status_data.append({
+                    'employee_id': str(employee.id),
+                    'employee_name': employee.name,
+                    'is_on_shift': True,
+                    'shift_start': emp_shift['start_time'].strftime('%H:%M'),
+                    'shift_end': emp_shift['end_time'].strftime('%H:%M'),
+                    'has_clocked_in': has_clocked_in,
+                    'clock_in_time': clock_in_time.strftime('%H:%M') if clock_in_time else None,
+                    'status': att_status,
+                    'late_minutes': late_minutes
+                })
+            
+            return Response(status_data)
+    
+    @action(detail=False, methods=['get'])
+    def daily_report(self, request):
+        """
+        Get late and absent report for a specific date
+        GET /api/shifts/attendance/daily_report/?date=2024-01-15
+        """
+        date_str = request.query_params.get('date', timezone.now().date().isoformat())
+        report_date = datetime.datetime.strptime(date_str, '%Y-%m-%d').date()
+        
+        # Get all employees scheduled for this date
+        day_of_week = report_date.weekday()
+        # Convert Python weekday (0=Monday) to our system (0=Sunday)
+        if day_of_week == 6:
+            day_of_week = 0
+        else:
+            day_of_week += 1
+        
+        scheduled_employees = WeeklyShiftSchedule.objects.filter(
+            day_of_week=day_of_week,
+            is_active=True
+        ).exclude(
+            employee__shift_overrides__date=report_date,
+            employee__shift_overrides__override_type__in=['day_off', 'vacation', 'sick_leave', 'holiday'],
+            employee__shift_overrides__status='approved'
+        ).select_related('employee')
+        
+        total_scheduled = scheduled_employees.count()
+        
+        # Get attendance records
+        attendance_records = ShiftAttendance.objects.filter(date=report_date).select_related('employee')
+        
+        present = attendance_records.filter(status='present').count()
+        late = attendance_records.filter(status='late').count()
+        absent = attendance_records.filter(status='absent').count()
+        
+        serializer = ShiftAttendanceSerializer(attendance_records, many=True)
+        
+        return Response({
+            'date': report_date,
+            'total_scheduled': total_scheduled,
+            'present': present,
+            'late': late,
+            'absent': absent,
+            'employees': serializer.data
+        })
+    
+    @action(detail=False, methods=['get'])
+    def employee_summary(self, request):
+        """
+        Get attendance summary for an employee over a date range
+        GET /api/shifts/attendance/employee_summary/?employee_id=<uuid>&start_date=2024-01-01&end_date=2024-01-31
+        """
+        employee_id = request.query_params.get('employee_id')
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date', timezone.now().date().isoformat())
+        
+        if not employee_id or not start_date:
+            return Response(
+                {'error': 'employee_id and start_date are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            employee = Employee.objects.get(id=employee_id)
+        except Employee.DoesNotExist:
+            return Response({'error': 'موظف غير موجود'}, status=status.HTTP_404_NOT_FOUND)
+            
+        start = datetime.datetime.strptime(start_date, '%Y-%m-%d').date()
+        end = datetime.datetime.strptime(end_date, '%Y-%m-%d').date()
+        
+        attendance_records = ShiftAttendance.objects.filter(
+            employee_id=employee_id,
+            date__gte=start,
+            date__lte=end
+        )
+        
+        days_present = attendance_records.filter(status='present').count()
+        days_late = attendance_records.filter(status='late').count()
+        days_absent = attendance_records.filter(status='absent').count()
+        
+        total_hours = attendance_records.aggregate(
+            total=Sum('total_hours')
+        )['total'] or Decimal('0.00')
+        
+        weekly_hours = calculate_weekly_hours(employee_id)
+        
+        # Calculate attendance rate
+        total_days = (end - start).days + 1
+        attendance_rate = ((days_present + days_late) / total_days * 100) if total_days > 0 else 0
+        
+        return Response({
+            'employee_id': str(employee.id),
+            'employee_name': employee.name,
+            'department': employee.department,
+            'weekly_hours': weekly_hours,
+            'days_present': days_present,
+            'days_late': days_late,
+            'days_absent': days_absent,
+            'total_hours_worked': float(total_hours),
+            'attendance_rate': round(attendance_rate, 2)
+        })

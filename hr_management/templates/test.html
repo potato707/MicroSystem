@@ -57,6 +57,19 @@
   .add-item-form{background:#f8f9fa; padding:12px; border-radius:6px; margin:10px 0}
   .readonly-field{background:#f8f9fa; padding:8px; border-radius:4px; border:1px solid #e6e9ee; margin-bottom:8px}
   
+  /* Complaint Management Styles */
+  .status-open{color:#0b7dda; font-weight:600;}
+  .status-in-progress{color:#ffb020; font-weight:600;}
+  .status-resolved{color:#1ea77f; font-weight:600;}
+  .status-closed{color:#7a8793; font-weight:600;}
+  .priority-low{color:#1ea77f;}
+  .priority-medium{color:#ffb020;}
+  .priority-high{color:#e14b4b;}
+  .priority-urgent{color:#dc3545; font-weight:700;}
+  
+  .internal-comment{background:#fff3cd !important; border-left:4px solid #ffc107 !important;}
+  .public-comment{background:#d4edda !important; border-left:4px solid #28a745 !important;}
+  
   @media (max-width:880px){
     .layout{grid-template-columns:1fr;gap:12px}
     .sidebar{order:2}
@@ -83,6 +96,7 @@
         <nav>
           <a href="#" class="navlink" data-route="dashboard">Dashboard</a>
           <a href="#" class="navlink inactive" data-route="employees">Employees</a>
+          <a href="#" class="navlink inactive" data-route="complaints">Complaints</a>
           <!-- <a href="#" class="navlink inactive" data-route="documents">Documents</a> -->
           <!-- <a href="#" class="navlink inactive" data-route="notes">Notes</a> -->
         </nav>
@@ -214,6 +228,29 @@
             </table>
           </section>
 
+          <!-- Client Complaints -->
+          <section id="complaints" class="pane card">
+            <div class="content-header">
+              <div>
+                <h3 style="margin:0">Client Complaints</h3>
+                <div class="small">Manage client complaints and responses</div>
+              </div>
+              <div>
+                <button class="btn ghost" onclick="getComplaints()">Refresh</button>
+              </div>
+            </div>
+
+            <!-- Complaints List -->
+            <div style="margin-bottom:20px;">
+              <table class="table" id="complaintsTable">
+                <thead><tr>
+                  <th>Title</th><th>Client</th><th>Status</th><th>Priority</th><th>Created</th><th>Actions</th>
+                </tr></thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </section>
+
           <footer>MicroSystem • HR Management</footer>
         </main>
       </div>
@@ -227,7 +264,9 @@
 const API = {
   employees:'/hr/employees/',
   documents:'/hr/documents/',
-  notes:'/hr/notes/'
+  notes:'/hr/notes/',
+  complaints:'/hr/client-complaints/',
+  complaintComments: (complaintId) => `/hr/client-complaints/${complaintId}/comments/`
 };
 
 /* ---------- CSRF helper (Django) ---------- */
@@ -264,8 +303,9 @@ function route(name){
   if (name === 'employees') getEmployees();
   if (name === 'documents') getDocuments();
   if (name === 'notes') getNotes();
+  if (name === 'complaints') getComplaints();
 }
-function refreshAll(){ getEmployees(); getDocuments(); getNotes(); logActivity('Refreshed all modules'); }
+function refreshAll(){ getEmployees(); getDocuments(); getNotes(); getComplaints(); logActivity('Refreshed all modules'); }
 
 /* ---------- Modal builder ---------- */
 function showModal(innerHtml){
@@ -774,6 +814,202 @@ async function doDelete(type, id){
     logActivity('Delete failed '+res.status);
   }
   getEmployees(); getDocuments(); getNotes();
+}
+
+/* ---------- COMPLAINTS MANAGEMENT ---------- */
+async function getComplaints(){
+  try {
+    const res = await fetch(API.complaints, {headers: headersJson()});
+    const data = await res.json();
+    const tbody = document.querySelector('#complaintsTable tbody');
+    tbody.innerHTML = '';
+    
+    data.results?.forEach(complaint => {
+      const tr = document.createElement('tr');
+      const createdAt = new Date(complaint.created_at).toLocaleDateString();
+      // Use display_status_combined for better UX - shows automated communication status
+      const displayStatus = complaint.display_status_combined || complaint.status_display || complaint.status;
+      tr.innerHTML = `
+        <td>${escapeHtml(complaint.title)}</td>
+        <td>${escapeHtml(complaint.client_name)}</td>
+        <td><span class="status-${complaint.status}">${escapeHtml(displayStatus)}</span></td>
+        <td><span class="priority-${complaint.priority}">${escapeHtml(complaint.priority_display || complaint.priority)}</span></td>
+        <td>${createdAt}</td>
+        <td class="row-actions">
+          <button class="btn ghost" onclick='viewComplaint("${complaint.id}")'>View</button>
+          <button class="btn" onclick='openComplaintComments("${complaint.id}")'>Comments</button>
+        </td>`;
+      tbody.appendChild(tr);
+    });
+    
+    logActivity(`Fetched ${data.results?.length || 0} complaints`);
+  } catch (error) {
+    console.error('Error fetching complaints:', error);
+    logActivity('Error fetching complaints');
+  }
+}
+
+async function viewComplaint(complaintId) {
+  try {
+    const res = await fetch(`${API.complaints}${complaintId}/`, {headers: headersJson()});
+    const complaint = await res.json();
+    
+    // Use display_status_combined for better UX - shows automated communication status
+    const displayStatus = complaint.display_status_combined || complaint.status_display || complaint.status;
+    
+    showModal(`
+      <div style="padding:8px 18px">
+        <h3>Complaint Details</h3>
+        <div class="readonly-field"><strong>Title:</strong> ${escapeHtml(complaint.title)}</div>
+        <div class="readonly-field"><strong>Client:</strong> ${escapeHtml(complaint.client_name)} (${escapeHtml(complaint.client_email)})</div>
+        <div class="readonly-field"><strong>Phone:</strong> ${escapeHtml(complaint.client_phone || 'N/A')}</div>
+        <div class="readonly-field"><strong>Status:</strong> ${escapeHtml(displayStatus)}</div>
+        <div class="readonly-field"><strong>Priority:</strong> ${escapeHtml(complaint.priority_display || complaint.priority)}</div>
+        <div class="readonly-field"><strong>Category:</strong> ${escapeHtml(complaint.category?.name || 'N/A')}</div>
+        <div class="readonly-field"><strong>Created:</strong> ${new Date(complaint.created_at).toLocaleString()}</div>
+        <div class="readonly-field"><strong>Description:</strong><br>${escapeHtml(complaint.description)}</div>
+        
+        <div style="margin-top:12px;text-align:right">
+          <button class="btn ghost" onclick="closeModal()">Close</button>
+          <button class="btn" onclick='closeModal();openComplaintComments("${complaint.id}")'>View Comments</button>
+        </div>
+      </div>
+    `);
+  } catch (error) {
+    console.error('Error viewing complaint:', error);
+  }
+}
+
+async function openComplaintComments(complaintId) {
+  try {
+    const [complaintRes, commentsRes] = await Promise.all([
+      fetch(`${API.complaints}${complaintId}/`, {headers: headersJson()}),
+      fetch(API.complaintComments(complaintId), {headers: headersJson()})
+    ]);
+    
+    const complaint = await complaintRes.json();
+    const comments = await commentsRes.json();
+    
+    showModal(`
+      <div style="padding:8px 18px; max-height:90vh; overflow-y:auto;">
+        <h3>Comments - ${escapeHtml(complaint.title)}</h3>
+        <div class="small" style="margin-bottom:16px">Client: ${escapeHtml(complaint.client_name)}</div>
+        
+        <!-- Add Comment Form -->
+        <div style="background:#f8f9fa; padding:16px; border-radius:8px; margin-bottom:20px;">
+          <h4 style="margin-top:0">Add New Comment</h4>
+          <form onsubmit="return addComment(event, '${complaintId}')">
+            <label class="block">Comment</label>
+            <textarea id="commentText" class="input" rows="4" placeholder="Enter your comment here..." required></textarea>
+            
+            <!-- THIS IS THE IS_INTERNAL TOGGLE YOU REQUESTED -->
+            <div style="margin:12px 0;">
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                <input type="checkbox" id="isInternalToggle" checked>
+                <span>🔒 Internal comment (staff only)</span>
+              </label>
+              <div class="small muted" style="margin-top:4px;">
+                Internal comments are only visible to staff. Uncheck to make it visible to the client.
+              </div>
+            </div>
+            
+            <div style="margin-top:12px;">
+              <button type="submit" class="btn">Add Comment</button>
+            </div>
+          </form>
+        </div>
+        
+        <!-- Comments List -->
+        <div>
+          <h4>All Comments (${comments.length})</h4>
+          <div id="commentsList">
+            ${renderComments(comments)}
+          </div>
+        </div>
+        
+        <div style="margin-top:12px;text-align:right; border-top:1px solid #eee; padding-top:12px;">
+          <button class="btn ghost" onclick="closeModal()">Close</button>
+          <button class="btn ghost" onclick="openComplaintComments('${complaintId}')">Refresh</button>
+        </div>
+      </div>
+    `);
+  } catch (error) {
+    console.error('Error loading comments:', error);
+    showModal(`<div style="padding:16px">Error loading comments. Please try again.</div>`);
+  }
+}
+
+function renderComments(comments) {
+  if (comments.length === 0) {
+    return '<div class="small muted" style="padding:20px; text-align:center;">No comments yet</div>';
+  }
+  
+  return comments.map(comment => {
+    const isInternal = comment.is_internal;
+    const visibilityClass = isInternal ? 'internal-comment' : 'public-comment';
+    const visibilityIcon = isInternal ? '🔒' : '👁️';
+    const visibilityText = isInternal ? 'Internal Only' : 'Client Visible';
+    
+    return `
+      <div class="comment-item ${visibilityClass}" style="margin:12px 0; padding:12px; border-radius:8px; background:${isInternal ? '#fff3cd' : '#d4edda'}; border-left:4px solid ${isInternal ? '#ffc107' : '#28a745'};">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <div>
+            <strong>${escapeHtml(comment.author_name)}</strong>
+            <span class="muted small"> • ${new Date(comment.created_at).toLocaleString()}</span>
+          </div>
+          <span style="background:${isInternal ? '#ffc107' : '#28a745'}; color:white; padding:2px 8px; border-radius:12px; font-size:12px;">
+            ${visibilityIcon} ${visibilityText}
+          </span>
+        </div>
+        <div style="line-height:1.5;">${escapeHtml(comment.comment)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function addComment(event, complaintId) {
+  event.preventDefault();
+  
+  const commentText = document.getElementById('commentText').value.trim();
+  const isInternal = document.getElementById('isInternalToggle').checked;
+  
+  if (!commentText) {
+    alert('Please enter a comment');
+    return false;
+  }
+  
+  try {
+    const res = await fetch(API.complaintComments(complaintId), {
+      method: 'POST',
+      headers: headersJson(),
+      body: JSON.stringify({
+        comment: commentText,
+        is_internal: isInternal  // This is the key field for the toggle!
+      })
+    });
+    
+    if (res.ok) {
+      // Success! Refresh the comments view
+      openComplaintComments(complaintId);
+      logActivity(`Comment added (${isInternal ? 'Internal' : 'Public'})`);
+    } else {
+      const error = await res.json();
+      console.error('Error adding comment:', error);
+      alert('Error adding comment. Please try again.');
+    }
+  } catch (error) {
+    console.error('Error adding comment:', error);
+    alert('Error adding comment. Please try again.');
+  }
+  
+  return false;
+}
+
+function escapeHtml(text) {
+  if (!text) return '';
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 /* ---------- DOCUMENTS CRUD ---------- */

@@ -27,14 +27,50 @@ SECRET_KEY = 'django-insecure-dh^n9)!g76hv0-uw0bbiqp&28r9n&4f$f6c#j(^vp769j_9oo5
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
-# CORS_ALLOWED_ORIGINS = [
-#     "http://localhost:3000",
-#     "https://yourfrontend.com",
-#     "https://4c51c4e9589f.ngrok-free.app",
-# ]
+# CORS Configuration
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+# Allow all origins in development (set to False in production)
 CORS_ORIGIN_ALLOW_ALL = True
+
+# Allow credentials (cookies, authorization headers)
+CORS_ALLOW_CREDENTIALS = True
+
+# Allow specific headers including custom tenant header
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+    'x-tenant-subdomain',  # Custom tenant header
+]
+
+# Expose headers to frontend
+CORS_EXPOSE_HEADERS = [
+    'content-type',
+    'x-tenant-name',
+    'x-tenant-subdomain',
+]
+
+# Allow all methods
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
 
 
 # Application definition
@@ -100,6 +136,9 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Tenant system middlewares
+    'hr_management.tenant_middleware.TenantMiddleware',
+    # 'hr_management.tenant_middleware.TenantModuleAccessMiddleware',  # Disabled temporarily - needs dynamic DB config
 ]
 
 ROOT_URLCONF = 'MicroSystem.urls'
@@ -132,6 +171,9 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+
+# Database Router for Multi-Tenant Support
+DATABASE_ROUTERS = ['hr_management.tenant_db_router.TenantDatabaseRouter']
 
 
 # Password validation
@@ -193,4 +235,20 @@ USE_TZ = True
 
 
 AUTH_USER_MODEL = "hr_management.User"
+
+# Email Configuration (for client account creation)
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'  # For development - prints to console
+# For production, use SMTP:
+# EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+# EMAIL_HOST = 'smtp.gmail.com'
+# EMAIL_PORT = 587
+# EMAIL_USE_TLS = True
+# EMAIL_HOST_USER = 'your-email@gmail.com'
+# EMAIL_HOST_PASSWORD = 'your-app-password'
+DEFAULT_FROM_EMAIL = 'noreply@company.com'
+
+# Frontend URLs (for email notifications and links)
+FRONTEND_URL = 'http://localhost:3000'  # Main frontend URL
+CLIENT_DASHBOARD_URL = 'http://localhost:3000/client/dashboard'
+CLIENT_LOGIN_URL = 'http://localhost:3000/client/login'
 

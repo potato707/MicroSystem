@@ -7,3 +7,4 @@ class HrManagementConfig(AppConfig):
 
     def ready(self):
         import hr_management.signals
+        import hr_management.tenant_signals  # Auto-create tenant modules

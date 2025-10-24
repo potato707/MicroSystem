@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>إنشاء عميل جديد - MicroSystem</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            max-width: 600px;
+            width: 100%;
+            padding: 40px;
+            animation: slideIn 0.5s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            color: #667eea;
+            font-size: 32px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 16px;
+        }
+
+        .form-group {
+            margin-bottom: 25px;
+        }
+
+        .form-group label {
+            display: block;
+            color: #333;
+            font-weight: 600;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+
+        .form-group label .required {
+            color: #e74c3c;
+            margin-left: 4px;
+        }
+
+        .form-group input {
+            width: 100%;
+            padding: 14px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 15px;
+            transition: all 0.3s ease;
+            font-family: inherit;
+        }
+
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .form-group input::placeholder {
+            color: #999;
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+
+        .btn {
+            width: 100%;
+            padding: 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            margin-top: 10px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.3);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .alert {
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            display: none;
+            animation: slideDown 0.3s ease-out;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .alert.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        .loader {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .loader.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .success-card {
+            display: none;
+            text-align: center;
+            padding: 30px;
+        }
+
+        .success-card.active {
+            display: block;
+            animation: slideIn 0.5s ease-out;
+        }
+
+        .success-card .icon {
+            font-size: 80px;
+            color: #28a745;
+            margin-bottom: 20px;
+        }
+
+        .success-card h2 {
+            color: #28a745;
+            margin-bottom: 15px;
+        }
+
+        .success-card .credentials {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            text-align: right;
+        }
+
+        .success-card .credentials p {
+            margin: 10px 0;
+            font-size: 16px;
+            color: #333;
+        }
+
+        .success-card .credentials strong {
+            color: #667eea;
+        }
+
+        .back-link {
+            text-align: center;
+            margin-top: 20px;
+        }
+
+        .back-link a {
+            color: #667eea;
+            text-decoration: none;
+            font-weight: 600;
+            transition: color 0.3s ease;
+        }
+
+        .back-link a:hover {
+            color: #764ba2;
+        }
+
+        @media (max-width: 600px) {
+            .form-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .container {
+                padding: 30px 20px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 إنشاء عميل جديد</h1>
+            <p>أنشئ عميل جديد وحساب إداري بكل سهولة</p>
+        </div>
+
+        <div id="alertBox" class="alert"></div>
+        
+        <div id="loaderBox" class="loader">
+            <div class="spinner"></div>
+            <p style="margin-top: 15px; color: #667eea;">جاري إنشاء العميل...</p>
+        </div>
+
+        <form id="tenantForm" style="display: block;">
+            <div class="form-group">
+                <label for="tenant_name">
+                    اسم الشركة
+                    <span class="required">*</span>
+                </label>
+                <input type="text" id="tenant_name" name="tenant_name" 
+                       placeholder="مثال: شركة التطوير المتقدم" required>
+            </div>
+
+            <div class="form-group">
+                <label for="subdomain">
+                    النطاق الفرعي (Subdomain)
+                    <span class="required">*</span>
+                </label>
+                <input type="text" id="subdomain" name="subdomain" 
+                       placeholder="مثال: company (سيكون: company.localhost:3000)" 
+                       required pattern="[a-z0-9-]+">
+                <small style="color: #666; font-size: 12px; display: block; margin-top: 5px;">
+                    يجب أن يحتوي على أحرف إنجليزية صغيرة وأرقام فقط
+                </small>
+            </div>
+
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="admin_username">
+                        اسم المستخدم للمدير
+                        <span class="required">*</span>
+                    </label>
+                    <input type="text" id="admin_username" name="admin_username" 
+                           placeholder="admin" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="admin_email">
+                        البريد الإلكتروني
+                        <span class="required">*</span>
+                    </label>
+                    <input type="email" id="admin_email" name="admin_email" 
+                           placeholder="admin@company.com" required>
+                </div>
+            </div>
+
+            <div class="form-grid">
+                <div class="form-group">
+                    <label for="admin_password">
+                        كلمة المرور
+                        <span class="required">*</span>
+                    </label>
+                    <input type="password" id="admin_password" name="admin_password" 
+                           placeholder="••••••••" required minlength="6">
+                </div>
+
+                <div class="form-group">
+                    <label for="admin_name">
+                        الاسم الكامل
+                    </label>
+                    <input type="text" id="admin_name" name="admin_name" 
+                           placeholder="أحمد محمد">
+                </div>
+            </div>
+
+            <button type="submit" class="btn" id="submitBtn">
+                إنشاء العميل الآن
+            </button>
+        </form>
+
+        <div id="successCard" class="success-card">
+            <div class="icon">✅</div>
+            <h2>تم إنشاء العميل بنجاح!</h2>
+            <p style="color: #666; margin-bottom: 20px;">يمكن الآن تسجيل الدخول باستخدام البيانات التالية</p>
+            
+            <div class="credentials">
+                <p><strong>النطاق:</strong> <span id="successSubdomain"></span></p>
+                <p><strong>اسم المستخدم:</strong> <span id="successUsername"></span></p>
+                <p><strong>كلمة المرور:</strong> <span id="successPassword"></span></p>
+                <p><strong>الرابط:</strong> <a href="#" id="successLink" target="_blank" style="color: #667eea;"></a></p>
+            </div>
+
+            <button class="btn" onclick="resetForm()">
+                إنشاء عميل آخر
+            </button>
+        </div>
+
+        <div class="back-link">
+            <a href="/admin/">← العودة إلى لوحة التحكم</a>
+        </div>
+    </div>
+
+    <script>
+        const form = document.getElementById('tenantForm');
+        const submitBtn = document.getElementById('submitBtn');
+        const alertBox = document.getElementById('alertBox');
+        const loaderBox = document.getElementById('loaderBox');
+        const successCard = document.getElementById('successCard');
+
+        form.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            // Get form data
+            const formData = {
+                name: document.getElementById('tenant_name').value,
+                subdomain: document.getElementById('subdomain').value.toLowerCase(),
+                admin_username: document.getElementById('admin_username').value,
+                admin_email: document.getElementById('admin_email').value,
+                admin_password: document.getElementById('admin_password').value,
+                admin_name: document.getElementById('admin_name').value || document.getElementById('admin_username').value
+            };
+
+            // Show loader
+            form.style.display = 'none';
+            loaderBox.classList.add('active');
+            alertBox.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/tenants/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(formData)
+                });
+
+                const data = await response.json();
+
+                loaderBox.classList.remove('active');
+
+                if (response.ok) {
+                    // Show success
+                    document.getElementById('successSubdomain').textContent = formData.subdomain + '.localhost:3000';
+                    document.getElementById('successUsername').textContent = formData.admin_username;
+                    document.getElementById('successPassword').textContent = formData.admin_password;
+                    
+                    const link = `http://${formData.subdomain}.localhost:3000`;
+                    document.getElementById('successLink').href = link;
+                    document.getElementById('successLink').textContent = link;
+                    
+                    successCard.classList.add('active');
+                } else {
+                    // Show error
+                    form.style.display = 'block';
+                    showAlert('error', data.error || 'حدث خطأ أثناء إنشاء العميل');
+                }
+            } catch (error) {
+                loaderBox.classList.remove('active');
+                form.style.display = 'block';
+                showAlert('error', 'حدث خطأ في الاتصال. الرجاء المحاولة مرة أخرى.');
+                console.error('Error:', error);
+            }
+        });
+
+        function showAlert(type, message) {
+            alertBox.className = `alert ${type}`;
+            alertBox.textContent = message;
+            alertBox.style.display = 'block';
+        }
+
+        function resetForm() {
+            form.reset();
+            form.style.display = 'block';
+            successCard.classList.remove('active');
+            alertBox.style.display = 'none';
+        }
+
+        // Auto-fill subdomain from company name
+        document.getElementById('tenant_name').addEventListener('input', (e) => {
+            const subdomain = e.target.value
+                .toLowerCase()
+                .replace(/[^a-z0-9\s]/g, '')
+                .replace(/\s+/g, '-')
+                .substring(0, 20);
+            
+            if (!document.getElementById('subdomain').value) {
+                document.getElementById('subdomain').value = subdomain;
+            }
+        });
+    </script>
+</body>
+</html>

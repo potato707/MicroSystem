@@ -127,12 +127,28 @@ def add_daily_salary_to_wallet(sender, instance, **kwargs):
     shift_end = timezone.make_aware(
         timezone.datetime.combine(instance.date, employee.shift_end_time)
     )
-    check_in_time = timezone.make_aware(
-        timezone.datetime.combine(instance.date, instance.check_in)
-    ) if instance.check_in else None
-    check_out_time = timezone.make_aware(
-        timezone.datetime.combine(instance.date, instance.check_out)
-    ) if instance.check_out else None
+    
+    # Handle check_in - could be datetime or time
+    if instance.check_in:
+        if isinstance(instance.check_in, timezone.datetime):
+            check_in_time = instance.check_in
+        else:
+            check_in_time = timezone.make_aware(
+                timezone.datetime.combine(instance.date, instance.check_in)
+            )
+    else:
+        check_in_time = None
+    
+    # Handle check_out - could be datetime or time
+    if instance.check_out:
+        if isinstance(instance.check_out, timezone.datetime):
+            check_out_time = instance.check_out
+        else:
+            check_out_time = timezone.make_aware(
+                timezone.datetime.combine(instance.date, instance.check_out)
+            )
+    else:
+        check_out_time = None
 
     if instance.status in ["absent", "on_leave"]:
         # Remove any existing multi-wallet transaction for this date
@@ -384,13 +400,44 @@ def add_shift_salary_to_wallet(sender, instance, **kwargs):
     # Get the date from the check_in time or attendance record
     shift_date = instance.check_in.date() if instance.check_in else instance.attendance.date
     
-    # Get shift times as datetime objects
-    shift_start = timezone.make_aware(
-        timezone.datetime.combine(shift_date, employee.shift_start_time)
-    ) if employee.shift_start_time else None
-    shift_end = timezone.make_aware(
-        timezone.datetime.combine(shift_date, employee.shift_end_time)
-    ) if employee.shift_end_time else None
+    # Get shift schedule for this day
+    from .models import WeeklyShiftSchedule
+    day_of_week = shift_date.weekday()
+    our_day_of_week = (day_of_week + 1) % 7  # Convert to Sunday=0
+    
+    try:
+        shift_schedule = WeeklyShiftSchedule.objects.get(
+            employee=employee,
+            day_of_week=our_day_of_week,
+            is_active=True
+        )
+        
+        # Convert string times to time objects if needed
+        start_time = shift_schedule.start_time
+        end_time = shift_schedule.end_time
+        
+        if isinstance(start_time, str):
+            from datetime import datetime as dt
+            start_time = dt.strptime(start_time, '%H:%M:%S').time() if len(start_time) > 5 else dt.strptime(start_time, '%H:%M').time()
+        if isinstance(end_time, str):
+            from datetime import datetime as dt
+            end_time = dt.strptime(end_time, '%H:%M:%S').time() if len(end_time) > 5 else dt.strptime(end_time, '%H:%M').time()
+        
+        shift_start = timezone.make_aware(
+            timezone.datetime.combine(shift_date, start_time)
+        )
+        shift_end = timezone.make_aware(
+            timezone.datetime.combine(shift_date, end_time)
+        )
+        
+        # Calculate scheduled shift hours
+        shift_hours = shift_schedule.calculate_hours()
+        
+    except WeeklyShiftSchedule.DoesNotExist:
+        # Fallback to old system or default 8 hours
+        shift_start = None
+        shift_end = None
+        shift_hours = 8  # Default
     
     # Use the actual check-in and check-out times from the WorkShift
     check_in_datetime = instance.check_in
@@ -402,19 +449,17 @@ def add_shift_salary_to_wallet(sender, instance, **kwargs):
     # Handle break time
     total_break_minutes = instance.total_break_time or 0
     
-    # Calculate total shift hours and worked hours
-    if not shift_start or not shift_end or not check_in_datetime or not check_out_datetime:
-        return
-        
-    shift_hours = (shift_end - shift_start).total_seconds() / 3600
+    # Calculate worked hours
     worked_seconds = (check_out_datetime - check_in_datetime).total_seconds() - (total_break_minutes * 60)
     worked_hours = worked_seconds / 3600
     
     # Grace period for late arrival
     grace_minutes = 15
-    delay = (check_in_datetime - shift_start).total_seconds() / 60 if check_in_datetime > shift_start else 0
-    if delay <= grace_minutes:
-        delay = 0
+    delay = 0
+    if shift_start:
+        delay = (check_in_datetime - shift_start).total_seconds() / 60 if check_in_datetime > shift_start else 0
+        if delay <= grace_minutes:
+            delay = 0
     
     # Calculate salary based on actual worked hours (better for multi-shift scenarios)
     total_salary = decimal.Decimal(0)
@@ -759,3 +804,146 @@ def cleanup_workshift_transactions(sender, instance, **kwargs):
             models.Q(description__contains=f"deduction for {employee.name} - {instance.check_in.date()}")
         ).delete()
 
+
+# ==================== TENANT INITIALIZATION SIGNALS ====================
+
+from hr_management.tenant_models import Tenant
+from django.contrib.auth import get_user_model
+from django.conf import settings
+from django.db import connections
+import os
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Store admin credentials temporarily during tenant creation
+_tenant_admin_credentials = {}
+
+def set_tenant_admin_credentials(tenant_subdomain, username, email, password, name):
+    """Store admin credentials for a new tenant - called from admin form"""
+    _tenant_admin_credentials[tenant_subdomain] = {
+        'username': username,
+        'email': email,
+        'password': password,
+        'name': name
+    }
+    logger.info(f"Stored admin credentials for tenant: {tenant_subdomain}")
+
+from django.db import transaction
+
+@receiver(post_save, sender=Tenant)
+def initialize_tenant_database(sender, instance, created, **kwargs):
+    """
+    Automatically initialize tenant database and create admin user when a new tenant is created.
+    This signal ensures that tenant databases are always properly initialized.
+    """
+    # Check if this is a new tenant OR if we have credentials to initialize
+    should_initialize = created or hasattr(instance, '_admin_credentials')
+    
+    if not should_initialize:
+        return  # Only run for new tenants or when credentials are provided
+    
+    # Use transaction.on_commit to ensure this runs AFTER the transaction commits
+    # This gives time for the form to set _admin_credentials on the instance
+    def do_initialization():
+        # FORCE PRINT TO CONSOLE
+        print(f"\n{'='*60}", flush=True)
+        print(f"🔧 SIGNAL TRIGGERED FOR TENANT: {instance.subdomain}", flush=True)
+        print(f"{'='*60}", flush=True)
+        
+        logger.info(f"🔧 Initializing database for new tenant: {instance.subdomain}")
+        
+        User = get_user_model()
+        db_alias = f"tenant_{instance.subdomain}"
+        db_path = os.path.join(settings.BASE_DIR, f'{db_alias}.sqlite3')
+        
+        try:
+            # Check for credentials FIRST
+            credentials = getattr(instance, '_admin_credentials', None)
+            print(f"DEBUG: Credentials from instance: {credentials}", flush=True)
+            
+            # Fallback to global storage
+            if not credentials:
+                credentials = _tenant_admin_credentials.pop(instance.subdomain, None)
+                print(f"DEBUG: Credentials from global: {credentials}", flush=True)
+            
+            if not credentials:
+                print(f"❌ NO CREDENTIALS FOUND FOR {instance.subdomain}!", flush=True)
+            else:
+                print(f"✅ Found credentials for user: {credentials.get('username')}", flush=True)
+            
+            # 1. Configure database connection
+            if db_alias not in settings.DATABASES:
+                settings.DATABASES[db_alias] = {
+                    'ENGINE': 'django.db.backends.sqlite3',
+                    'NAME': db_path,
+                    'ATOMIC_REQUESTS': False,
+                    'AUTOCOMMIT': True,
+                    'CONN_HEALTH_CHECKS': False,
+                    'CONN_MAX_AGE': 0,
+                    'OPTIONS': {},
+                    'TIME_ZONE': None,
+                    'USER': '',
+                    'PASSWORD': '',
+                    'HOST': '',
+                    'PORT': '',
+                    'TEST': {
+                        'CHARSET': None,
+                        'COLLATION': None,
+                        'MIGRATE': True,
+                        'MIRROR': None,
+                        'NAME': None,
+                    },
+                }
+                logger.info(f"✅ Configured database connection for {db_alias}")
+                print(f"✅ Database configured: {db_path}", flush=True)
+            
+            # 2. Close any existing connection
+            if db_alias in connections:
+                connections[db_alias].close()
+            
+            # 3. Run migrations
+            logger.info(f"🔄 Running migrations for {db_alias}...")
+            print(f"🔄 Running migrations...", flush=True)
+            from django.core.management import call_command
+            call_command('migrate', '--database', db_alias, verbosity=0)
+            logger.info(f"✅ Migrations completed for {db_alias}")
+            print(f"✅ Migrations completed!", flush=True)
+            
+            # 4. Create admin user if credentials were provided
+            if credentials:
+                print(f"🔄 Creating admin user: {credentials['username']}...", flush=True)
+                admin_user = User(
+                    username=credentials['username'],
+                    email=credentials['email'],
+                    name=credentials.get('name', credentials['username']),
+                    is_staff=True,
+                    is_superuser=True,
+                    is_active=True,
+                    role='admin'
+                )
+                admin_user.set_password(credentials['password'])
+                admin_user.save(using=db_alias)
+                logger.info(f"✅ Created admin user '{credentials['username']}' for tenant '{instance.subdomain}'")
+                print(f"✅ Admin user created: {credentials['username']}", flush=True)
+                print(f"   Email: {credentials['email']}", flush=True)
+                print(f"   Password: {credentials['password']}", flush=True)
+                print(f"\n{'='*60}", flush=True)
+                print(f"✅ TENANT '{instance.subdomain}' READY TO USE!", flush=True)
+                print(f"{'='*60}\n", flush=True)
+            else:
+                logger.warning(f"⚠️ No admin credentials provided for tenant '{instance.subdomain}'")
+                print(f"⚠️ No admin credentials provided!", flush=True)
+                print(f"   Create admin user manually using: python create_tenant_user.py", flush=True)
+                print(f"\n{'='*60}\n", flush=True)
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize tenant '{instance.subdomain}': {str(e)}")
+            print(f"❌ ERROR: Failed to initialize tenant '{instance.subdomain}'", flush=True)
+            print(f"   Error: {str(e)}", flush=True)
+            print(f"\n{'='*60}\n", flush=True)
+            import traceback
+            traceback.print_exc()
+    
+    # Schedule initialization to run after transaction commits
+    transaction.on_commit(do_initialization)
