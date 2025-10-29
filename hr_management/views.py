@@ -1278,12 +1278,13 @@ class TaskViewSet(viewsets.ModelViewSet):
                 except Employee.DoesNotExist:
                     raise ValidationError("Employee not found")
             elif not team_id:
-                # No employee or team specified - assign to admin's own employee profile if exists
+                # No employee or team specified - check if admin has an employee profile
                 try:
                     employee = user.employee
-                except Employee.DoesNotExist:
-                    # Admin doesn't have employee profile - require explicit employee or team
-                    raise ValidationError("You must specify an employee or team for this task, or create an employee profile for yourself")
+                except (Employee.DoesNotExist, AttributeError):
+                    # Admin doesn't have employee profile - create task without employee assignment
+                    # This creates an admin-level task that isn't assigned to any specific employee
+                    employee = None
             # else: team_id is specified but no employee - leave employee as None (team task)
             
             task = serializer.save(
