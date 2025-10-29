@@ -282,12 +282,20 @@ class TenantService:
                 'sort_order': 5
             },
             {
+                'module_key': 'teams',
+                'module_name': 'Team Management',
+                'description': 'Create and manage teams and team members',
+                'icon': 'users-cog',
+                'is_core': False,
+                'sort_order': 6
+            },
+            {
                 'module_key': 'shifts',
                 'module_name': 'Shift Scheduling',
                 'description': 'Manage employee shifts and schedules',
                 'icon': 'calendar',
                 'is_core': False,
-                'sort_order': 6
+                'sort_order': 7
             },
             {
                 'module_key': 'reports',
@@ -295,7 +303,7 @@ class TenantService:
                 'description': 'View detailed reports and analytics',
                 'icon': 'bar-chart',
                 'is_core': False,
-                'sort_order': 7
+                'sort_order': 8
             },
             {
                 'module_key': 'notifications',
@@ -303,7 +311,7 @@ class TenantService:
                 'description': 'Email and system notifications',
                 'icon': 'bell',
                 'is_core': True,
-                'sort_order': 8
+                'sort_order': 9
             },
         ]
         
