@@ -419,27 +419,21 @@ class TaskCreateSerializer(serializers.ModelSerializer):
         super().__init__(*args, **kwargs)
         request = self.context.get('request')
         
-        # Include employee field for admins, but make it optional if they have an employee profile
+        # Include employee field for admins, always optional (will be set by perform_create)
         if request and request.user.role == 'admin':
-            # Check if admin has an employee profile
-            has_employee_profile = hasattr(request.user, 'employee')
             self.fields['employee'] = serializers.PrimaryKeyRelatedField(
                 queryset=Employee.objects.all(), 
-                required=not has_employee_profile,  # Optional if admin has employee profile
+                required=False,  # Always optional - perform_create will handle it
+                allow_null=True
+            )
+            self.fields['team'] = serializers.PrimaryKeyRelatedField(
+                queryset=Team.objects.all(),
+                required=False,
                 allow_null=True
             )
     
     def validate(self, data):
-        """Custom validation that handles employee field based on user role"""
-        request = self.context.get('request')
-        if request and request.user.role == 'admin':
-            # If admin doesn't have employee profile, employee field is required
-            if not hasattr(request.user, 'employee'):
-                if 'employee' not in data or data['employee'] is None:
-                    raise serializers.ValidationError({
-                        'employee': 'Employee field is required for admin task creation'
-                    })
-        
+        """Custom validation for tasks"""
         # Validate subtasks
         subtasks_data = data.get('subtasks', [])
         if subtasks_data:
@@ -450,7 +444,12 @@ class TaskCreateSerializer(serializers.ModelSerializer):
                     'subtasks': 'Subtask titles must be unique within a task'
                 })
         
-        # For employees and admins with employee profiles, employee field will be set by perform_create
+        # Note: employee field will be set automatically by perform_create based on user role
+        # Admin without employee/team specified → assigned to self (if has employee profile)
+        # Admin with employee specified → assigned to that employee
+        # Admin with team specified → team task (no specific employee)
+        # Employee → always assigned to self
+        
         return data
     
     def create(self, validated_data):
