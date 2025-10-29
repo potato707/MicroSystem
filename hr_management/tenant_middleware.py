@@ -8,11 +8,44 @@ from django.utils.deprecation import MiddlewareMixin
 from django.conf import settings
 from django.db import connections
 from .tenant_models import Tenant, TenantModule
-from .tenant_db_router import set_current_tenant, clear_current_tenant
+from .tenant_db_router import set_current_tenant, clear_current_tenant, get_current_tenant as get_tenant_from_router
 import logging
 import os
+import threading
 
 logger = logging.getLogger(__name__)
+
+# Thread-local storage for current request
+_thread_local = threading.local()
+
+
+def get_current_tenant():
+    """
+    Get the current tenant from thread-local storage.
+    This is set by TenantMiddleware during request processing.
+    """
+    # First try to get from thread-local
+    tenant = getattr(_thread_local, 'tenant', None)
+    if tenant:
+        return tenant
+    
+    # Fallback to DB router's storage
+    return get_tenant_from_router()
+
+
+def set_thread_local_tenant(tenant):
+    """
+    Set the current tenant in thread-local storage
+    """
+    _thread_local.tenant = tenant
+
+
+def clear_thread_local_tenant():
+    """
+    Clear the current tenant from thread-local storage
+    """
+    if hasattr(_thread_local, 'tenant'):
+        del _thread_local.tenant
 
 
 def setup_tenant_database(tenant):
@@ -77,17 +110,20 @@ class TenantMiddleware(MiddlewareMixin):
                 is_active=True
             ).first()
             if tenant:
-                logger.info(f"Tenant identified from header: {tenant.name}")
+                logger.info(f"✅ Tenant identified from header: {tenant.name} ({subdomain_header})")
                 request.tenant = tenant
                 
                 # Setup tenant database dynamically
                 setup_tenant_database(tenant)
                 
-                set_current_tenant(tenant)  # Set for DB router
+                # Set in both DB router and thread-local storage
+                set_current_tenant(tenant)
+                set_thread_local_tenant(tenant)
                 return None
         
         # Otherwise, try to identify from host
         host = request.get_host().split(':')[0]  # Remove port if present
+        logger.info(f"🌐 Extracting tenant from host: {host}")
         
         # Try to find tenant by custom domain
         tenant = Tenant.objects.using('default').filter(
@@ -97,35 +133,76 @@ class TenantMiddleware(MiddlewareMixin):
         
         # If not found, try to extract subdomain
         if not tenant:
-            try:
-                # Assuming format: subdomain.domain.com
-                parts = host.split('.')
-                if len(parts) >= 2:
-                    subdomain = parts[0]
-                    tenant = Tenant.objects.using('default').filter(
-                        subdomain=subdomain,
-                        is_active=True
-                    ).first()
-            except Exception as e:
-                logger.warning(f"Error extracting subdomain: {e}")
+            subdomain = self._extract_subdomain(host)
+            if subdomain:
+                logger.info(f"🔍 Extracted subdomain: {subdomain}")
+                tenant = Tenant.objects.using('default').filter(
+                    subdomain=subdomain,
+                    is_active=True
+                ).first()
+            else:
+                logger.info(f"⚪ Main domain detected (no subdomain): {host}")
         
         # Attach tenant to request (can be None for main domain)
         request.tenant = tenant
         if tenant:
-            logger.info(f"Tenant identified from host: {tenant.name}")
+            logger.info(f"✅ Tenant identified from host: {tenant.name} ({tenant.subdomain})")
             
             # Setup tenant database dynamically
             setup_tenant_database(tenant)
             
-            set_current_tenant(tenant)  # Set for DB router
+            # Set in both DB router and thread-local storage
+            set_current_tenant(tenant)
+            set_thread_local_tenant(tenant)
         else:
-            clear_current_tenant()  # Clear for non-tenant requests
+            # Clear for non-tenant requests
+            clear_current_tenant()
+            clear_thread_local_tenant()
         
         return None
+    
+    def _extract_subdomain(self, host):
+        """
+        Extract subdomain from host
+        
+        Examples:
+        - adam.client-radar.org → 'adam'
+        - khalid.client-radar.org → 'khalid'
+        - client-radar.org → None (main domain)
+        - www.client-radar.org → None (www is reserved)
+        - adam.localhost → 'adam' (for local dev)
+        """
+        parts = host.split('.')
+        
+        # localhost or single domain (no subdomain)
+        if len(parts) < 2:
+            return None
+        
+        # Get first part as potential subdomain
+        subdomain = parts[0]
+        
+        # Skip reserved subdomains
+        if subdomain in ['www', 'api', 'admin', 'mail', 'ftp', 'cpanel']:
+            return None
+        
+        # client-radar.org (2 parts) → no subdomain
+        # adam.client-radar.org (3 parts) → 'adam'
+        # adam.localhost (2 parts, but localhost is special) → 'adam'
+        
+        if len(parts) == 2:
+            # Check if it's localhost (special case for development)
+            if parts[1] == 'localhost':
+                return subdomain
+            # Otherwise it's main domain (e.g., client-radar.org)
+            return None
+        
+        # 3+ parts means subdomain.domain.tld
+        return subdomain
     
     def process_response(self, request, response):
         """Clear tenant from thread-local after request"""
         clear_current_tenant()
+        clear_thread_local_tenant()
         return response
 
 

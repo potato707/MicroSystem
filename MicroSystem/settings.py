@@ -27,16 +27,19 @@ SECRET_KEY = 'django-insecure-dh^n9)!g76hv0-uw0bbiqp&28r9n&4f$f6c#j(^vp769j_9oo5
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = ['*', '*.client-radar.org', 'client-radar.org']
 
-# CORS Configuration
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
+CSRF_TRUSTED_ORIGINS = [
+    'https://client-radar.org',
+    'https://*.client-radar.org',
+    'http://localhost:3000',
+    'http://adam.localhost:3000',
+    'http://*.localhost:3000',
 ]
 
-# Allow all origins in development (set to False in production)
-CORS_ORIGIN_ALLOW_ALL = True
+# CORS Configuration
+# Allow all origins in development
+CORS_ALLOW_ALL_ORIGINS = True
 
 # Allow credentials (cookies, authorization headers)
 CORS_ALLOW_CREDENTIALS = True

@@ -1,0 +1,51 @@
+# Multi-stage build for production
+FROM node:18-alpine AS frontend-builder
+
+WORKDIR /app/frontend
+
+# Install dependencies
+COPY microservice_frontend/package*.json ./
+RUN npm ci --only=production
+
+# Copy source and build
+COPY microservice_frontend/ ./
+RUN npm run build
+
+# Python backend
+FROM python:3.10-slim AS backend
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    postgresql-client \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt gunicorn
+
+# Copy Django project
+COPY . .
+
+# Copy built frontend
+COPY --from=frontend-builder /app/frontend/.next ./microservice_frontend/.next
+COPY --from=frontend-builder /app/frontend/public ./microservice_frontend/public
+
+# Create necessary directories
+RUN mkdir -p /app/staticfiles /app/media /app/tenants
+
+# Collect static files
+RUN python manage.py collectstatic --noinput
+
+# Create non-root user
+RUN useradd -m -u 1000 deploy && \
+    chown -R deploy:deploy /app
+
+USER deploy
+
+EXPOSE 8000 3000
+
+# Default command (can be overridden in docker-compose)
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "4", "MicroSystem.wsgi:application"]

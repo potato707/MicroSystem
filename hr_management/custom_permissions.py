@@ -33,8 +33,9 @@ class HasModuleAccess(BasePermission):
                 return False
             
             # Check if module is enabled for this tenant
+            # NOTE: TenantModule is in the main database, must use .using('default')
             try:
-                tenant_module = TenantModule.objects.get(
+                tenant_module = TenantModule.objects.using('default').get(
                     tenant=tenant,
                     module_key=module_key
                 )

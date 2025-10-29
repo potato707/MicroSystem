@@ -108,8 +108,16 @@ class ModuleAccessMiddleware:
         # Get current tenant
         tenant = get_current_tenant()
         
+        print(f"\n🔍 MODULE ACCESS CHECK:")
+        print(f"   Path: {path}")
+        print(f"   Module Key: {module_key}")
+        print(f"   Tenant: {tenant}")
+        print(f"   Tenant ID: {tenant.id if tenant else 'None'}")
+        print(f"   X-Tenant-Subdomain Header: {request.headers.get('X-Tenant-Subdomain', 'NOT SET')}")
+        
         if not tenant:
             # No tenant context (might be in main database context)
+            print(f"   ❌ No tenant context found!")
             return self.get_response(request)
         
         # Check if module is enabled for tenant
@@ -121,7 +129,11 @@ class ModuleAccessMiddleware:
                 module_key=module_key
             )
             
+            print(f"   ✅ Found TenantModule: {tenant_module.module_name}")
+            print(f"   Is Enabled: {tenant_module.is_enabled}")
+            
             if not tenant_module.is_enabled:
+                print(f"   ❌ Module is disabled!")
                 return JsonResponse({
                     'error': 'module_not_enabled',
                     'message_ar': f'الوحدة "{tenant_module.module_name}" غير مفعلة لهذا العميل',
@@ -131,6 +143,7 @@ class ModuleAccessMiddleware:
                 }, status=403)
             
         except TenantModule.DoesNotExist:
+            print(f"   ❌ TenantModule.DoesNotExist exception!")
             return JsonResponse({
                 'error': 'module_not_found',
                 'message_ar': f'الوحدة "{module_key}" غير متاحة',
@@ -139,6 +152,7 @@ class ModuleAccessMiddleware:
             }, status=403)
         
         # Module is enabled, continue with request
+        print(f"   ✅ Module access granted!\n")
         return self.get_response(request)
     
     def _get_module_key_for_path(self, path):
