@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>اختبار Multi-Select</title>
+    <style>
+        :root {
+            --primary: hsl(0, 0%, 26%);
+            --primary-foreground: hsl(0, 0%, 98%);
+            --card: hsl(0, 0%, 96%);
+            --border: hsl(0, 0%, 92%);
+            --muted: hsl(0, 0%, 96%);
+            --foreground: hsl(0, 0%, 26%);
+            --muted-foreground: hsl(0, 0%, 46%);
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            padding: 40px;
+            background: #f5f5f5;
+        }
+
+        .test-container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .multi-select-wrapper-edit {
+            position: relative;
+            width: 100%;
+        }
+
+        .multi-select-header-edit {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 15px;
+            background: var(--card);
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            min-height: 48px;
+        }
+
+        .multi-select-header-edit:hover {
+            border-color: var(--primary);
+            background: var(--muted);
+        }
+
+        .multi-select-header-edit.active {
+            border-color: var(--primary);
+            border-bottom-left-radius: 0;
+            border-bottom-right-radius: 0;
+        }
+
+        .multi-select-header-edit.active svg {
+            transform: rotate(180deg);
+        }
+
+        .multi-select-dropdown-edit {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            background: var(--card);
+            border: 2px solid var(--primary);
+            border-top: none;
+            border-radius: 0 0 10px 10px;
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s ease;
+            z-index: 1000;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        }
+
+        .multi-select-dropdown-edit.show {
+            max-height: 350px;
+            overflow-y: auto;
+        }
+
+        .multi-select-search {
+            padding: 10px;
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            background: var(--card);
+            z-index: 1;
+        }
+
+        .multi-select-search input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            transition: all 0.3s;
+        }
+
+        .multi-select-options {
+            max-height: 280px;
+            overflow-y: auto;
+        }
+
+        .multi-select-option {
+            display: flex;
+            align-items: center;
+            padding: 12px 15px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .multi-select-option:hover {
+            background: var(--muted);
+        }
+
+        .multi-select-option input[type="checkbox"] {
+            width: 20px;
+            height: 20px;
+            margin-left: 12px;
+            cursor: pointer;
+        }
+
+        .multi-select-option label {
+            flex: 1;
+            cursor: pointer;
+            margin: 0;
+        }
+
+        .selected-tenants-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .tenant-tag {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            background: var(--primary);
+            color: var(--primary-foreground);
+            border-radius: 20px;
+            font-size: 13px;
+        }
+
+        .tenant-tag .remove-tag {
+            cursor: pointer;
+            font-size: 18px;
+            opacity: 0.8;
+        }
+
+        .tenant-tag .remove-tag:hover {
+            opacity: 1;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            background: #e3f2fd;
+            border-radius: 8px;
+            font-family: monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="test-container">
+        <h2>اختبار Multi-Select للعملاء المرتبطين</h2>
+        
+        <div style="margin: 20px 0;">
+            <label style="display: block; margin-bottom: 10px; font-weight: bold;">
+                العملاء المرتبطين
+            </label>
+            <div class="multi-select-wrapper-edit">
+                <div class="multi-select-header-edit" onclick="toggleEditMultiSelectDropdown()">
+                    <span id="selectedTenantsDisplayEdit">-- اختر العملاء --</span>
+                    <svg width="20" height="20" viewBox="0 0 20 20" fill="none" style="transform: rotate(0deg); transition: transform 0.3s;">
+                        <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+                <div class="multi-select-dropdown-edit" id="multiSelectDropdownEdit">
+                    <div class="multi-select-search">
+                        <input type="text" id="tenantSearchInputEdit" placeholder="ابحث عن عميل..." onkeyup="filterTenantsEdit()">
+                    </div>
+                    <div class="multi-select-options" id="tenantOptionsEdit">
+                        <div style="padding: 20px; text-align: center;">
+                            جاري التحميل...
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="selected-tenants-tags" id="selectedTenantsTagsEdit"></div>
+        </div>
+
+        <div class="status">
+            <strong>الحالة:</strong>
+            <div id="statusLog"></div>
+        </div>
+    </div>
+
+    <script>
+        let selectedTenantsEdit = new Set();
+        let allTenantsForSelection = [];
+
+        function log(msg) {
+            const statusLog = document.getElementById('statusLog');
+            statusLog.innerHTML += `<div>${new Date().toLocaleTimeString()}: ${msg}</div>`;
+        }
+
+        async function loadTenants() {
+            log('بدء تحميل العملاء...');
+            try {
+                const response = await fetch('/api/tenants/', { credentials: 'include' });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                log(`تم تحميل ${data.results?.length || 0} عميل`);
+                
+                allTenantsForSelection = data.results || data;
+                renderTenantOptionsEdit();
+                
+            } catch (error) {
+                log(`خطأ: ${error.message}`);
+                console.error('Error:', error);
+            }
+        }
+
+        function renderTenantOptionsEdit() {
+            const container = document.getElementById('tenantOptionsEdit');
+            
+            if (!allTenantsForSelection || allTenantsForSelection.length === 0) {
+                container.innerHTML = '<div style="padding: 20px; text-align: center;">لا يوجد عملاء</div>';
+                log('لا يوجد عملاء لعرضها');
+                return;
+            }
+            
+            container.innerHTML = '';
+            log(`عرض ${allTenantsForSelection.length} عميل`);
+            
+            allTenantsForSelection.forEach(tenant => {
+                const option = document.createElement('div');
+                option.className = 'multi-select-option';
+                option.dataset.tenantId = tenant.id;
+                option.dataset.tenantName = tenant.name.toLowerCase();
+                
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.id = `tenant-edit-${tenant.id}`;
+                checkbox.checked = selectedTenantsEdit.has(tenant.id);
+                checkbox.onchange = () => toggleTenantSelectionEdit(tenant.id);
+                
+                const label = document.createElement('label');
+                label.htmlFor = `tenant-edit-${tenant.id}`;
+                label.textContent = `${tenant.name} (${tenant.subdomain})`;
+                
+                option.appendChild(checkbox);
+                option.appendChild(label);
+                container.appendChild(option);
+            });
+        }
+
+        function toggleEditMultiSelectDropdown() {
+            const dropdown = document.getElementById('multiSelectDropdownEdit');
+            const header = document.querySelector('.multi-select-header-edit');
+            
+            const wasOpen = dropdown.classList.contains('show');
+            dropdown.classList.toggle('show');
+            header.classList.toggle('active');
+            
+            log(wasOpen ? 'إغلاق القائمة' : 'فتح القائمة');
+        }
+
+        function toggleTenantSelectionEdit(id) {
+            if (selectedTenantsEdit.has(id)) {
+                selectedTenantsEdit.delete(id);
+                log(`إزالة عميل: ${id}`);
+            } else {
+                selectedTenantsEdit.add(id);
+                log(`إضافة عميل: ${id}`);
+            }
+            
+            updateSelectedDisplayEdit();
+            updateSelectedTagsEdit();
+        }
+
+        function removeTenantEdit(id) {
+            selectedTenantsEdit.delete(id);
+            const checkbox = document.getElementById(`tenant-edit-${id}`);
+            if (checkbox) checkbox.checked = false;
+            
+            updateSelectedDisplayEdit();
+            updateSelectedTagsEdit();
+            log(`حذف عميل من Tags: ${id}`);
+        }
+
+        function updateSelectedDisplayEdit() {
+            const display = document.getElementById('selectedTenantsDisplayEdit');
+            
+            if (selectedTenantsEdit.size === 0) {
+                display.textContent = '-- اختر العملاء --';
+            } else {
+                display.textContent = `تم اختيار ${selectedTenantsEdit.size} عميل`;
+            }
+        }
+
+        function updateSelectedTagsEdit() {
+            const container = document.getElementById('selectedTenantsTagsEdit');
+            container.innerHTML = '';
+            
+            if (selectedTenantsEdit.size === 0) return;
+            
+            selectedTenantsEdit.forEach(tenantId => {
+                const tenant = allTenantsForSelection.find(t => t.id === tenantId);
+                if (!tenant) return;
+                
+                const tag = document.createElement('div');
+                tag.className = 'tenant-tag';
+                tag.innerHTML = `
+                    <span>${tenant.name}</span>
+                    <span class="remove-tag" onclick="removeTenantEdit('${tenant.id}')">×</span>
+                `;
+                container.appendChild(tag);
+            });
+        }
+
+        function filterTenantsEdit() {
+            const searchTerm = document.getElementById('tenantSearchInputEdit').value.toLowerCase();
+            const options = document.querySelectorAll('#tenantOptionsEdit .multi-select-option');
+            
+            let visibleCount = 0;
+            options.forEach(option => {
+                const name = option.dataset.tenantName || '';
+                
+                if (name.includes(searchTerm)) {
+                    option.style.display = 'flex';
+                    visibleCount++;
+                } else {
+                    option.style.display = 'none';
+                }
+            });
+            
+            log(`البحث: "${searchTerm}" - النتائج: ${visibleCount}`);
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', function(event) {
+            const wrapper = document.querySelector('.multi-select-wrapper-edit');
+            const dropdown = document.getElementById('multiSelectDropdownEdit');
+            const header = document.querySelector('.multi-select-header-edit');
+            
+            if (wrapper && !wrapper.contains(event.target)) {
+                if (dropdown && dropdown.classList.contains('show')) {
+                    dropdown.classList.remove('show');
+                    header.classList.remove('active');
+                    log('إغلاق القائمة (ضغط خارجي)');
+                }
+            }
+        });
+
+        // Load on page load
+        log('تحميل الصفحة...');
+        loadTenants();
+    </script>
+</body>
+</html>

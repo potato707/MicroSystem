@@ -187,7 +187,7 @@ class TenantUpdateSerializer(serializers.ModelSerializer):
         """Custom update to regenerate config after changes"""
         from .tenant_service import TenantService
         
-        # Update tenant
+        # Update tenant basic fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()

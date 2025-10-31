@@ -11,7 +11,7 @@ from .tenant_views import (
     check_module_access,
     tenant_statistics
 )
-from .tenant_creator_view import tenant_creator_view
+from .tenant_creator_view import tenant_creator_view, tenant_management_view
 
 router = DefaultRouter()
 router.register(r'tenants', TenantViewSet, basename='tenant')
@@ -20,6 +20,9 @@ router.register(r'modules', ModuleDefinitionViewSet, basename='module')
 urlpatterns = [
     # Tenant Creator - Custom page for easy tenant creation
     path('create-tenant/', tenant_creator_view, name='create-tenant'),
+    
+    # Tenant Management - View, edit, and delete tenants
+    path('manage-tenants/', tenant_management_view, name='manage-tenants'),
     
     # Router URLs
     path('', include(router.urls)),

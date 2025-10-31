@@ -22,3 +22,13 @@ def tenant_creator_view(request):
     }
     
     return render(request, 'tenant_creator.html', context)
+
+
+@staff_member_required
+@require_http_methods(["GET"])
+def tenant_management_view(request):
+    """
+    Display the tenant management page for viewing, editing, and deleting tenants.
+    Only accessible to staff members.
+    """
+    return render(request, 'tenant_management.html')

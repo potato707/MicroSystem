@@ -6,6 +6,7 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.authentication import SessionAuthentication, BasicAuthentication
 from django.shortcuts import get_object_or_404
 from django.http import JsonResponse, FileResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -27,6 +28,14 @@ from .tenant_serializers import (
 from .tenant_service import TenantService
 
 
+class CsrfExemptSessionAuthentication(SessionAuthentication):
+    """
+    SessionAuthentication without CSRF check for API calls
+    """
+    def enforce_csrf(self, request):
+        return  # Skip CSRF check for API
+
+
 class TenantViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing tenants
@@ -34,6 +43,7 @@ class TenantViewSet(viewsets.ModelViewSet):
     """
     queryset = Tenant.objects.all()
     permission_classes = [IsAuthenticated, IsAdminUser]
+    authentication_classes = [CsrfExemptSessionAuthentication, BasicAuthentication]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     
     def get_permissions(self):
@@ -47,17 +57,18 @@ class TenantViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """
-        For list action, only return active tenants
-        For admin actions, return all tenants
+        For list action:
+        - If user is authenticated and staff: return ALL tenants (active + inactive)
+        - If user is not authenticated: return only active tenants
+        For admin actions: return all tenants
         """
         if self.action == 'list':
+            # If user is staff, show all tenants including inactive ones
+            if self.request.user.is_authenticated and self.request.user.is_staff:
+                return Tenant.objects.all().order_by('name')
+            # For public/non-staff users, show only active tenants
             return Tenant.objects.filter(is_active=True).order_by('name')
         return Tenant.objects.all()
-    
-    @method_decorator(csrf_exempt)
-    def dispatch(self, *args, **kwargs):
-        """Exempt create action from CSRF protection"""
-        return super().dispatch(*args, **kwargs)
     
     def get_serializer_class(self):
         """Return appropriate serializer based on action"""

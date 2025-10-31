@@ -1,16 +1,16 @@
 {
-  "name": "Test Company A",
-  "domain": "auth_test_a.myapp.com",
-  "subdomain": "auth_test_a",
+  "name": "requests",
+  "domain": "requests.myapp.com",
+  "subdomain": "requests",
   "modules": {
     "attendance": true,
     "complaints": true,
     "employees": true,
     "notifications": true,
-    "reports": false,
-    "shifts": false,
-    "tasks": false,
-    "wallet": false
+    "reports": true,
+    "shifts": true,
+    "tasks": true,
+    "wallet": true
   },
   "theme": {
     "primary": "#3498db",
@@ -22,6 +22,6 @@
     "phone": null
   },
   "is_active": true,
-  "created_at": "2025-10-22T11:40:20.144180+00:00",
-  "updated_at": "2025-10-31T14:09:03.290362+00:00"
+  "created_at": "2025-10-31T14:09:27.551349+00:00",
+  "updated_at": "2025-10-31T14:09:33.883099+00:00"
 }
