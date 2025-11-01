@@ -1000,48 +1000,44 @@ class ClientComplaintSubmissionSerializer(serializers.ModelSerializer):
     
     def create(self, validated_data):
         """
-        Create complaint and automatically create/link client user account
+        Create complaint and automatically create/link GlobalClient account
+        GlobalClient is stored in main database and works across all tenants
         """
         import secrets
         import string
         from django.core.mail import send_mail
         from django.conf import settings
+        from .models import GlobalClient
         
         client_email = validated_data['client_email']
         client_name = validated_data['client_name']
+        client_phone = validated_data.get('client_phone', '')
         
-        # Check if a user with this email already exists
-        client_user = User.objects.filter(email=client_email).first()
+        # Check if GlobalClient with this email already exists in main database
+        global_client = GlobalClient.objects.using('default').filter(email=client_email).first()
         
-        # If user doesn't exist, create a new client account
-        if not client_user:
+        # If GlobalClient doesn't exist, create a new one in main database
+        if not global_client:
             # Generate a secure random password
             password_length = 12
             password_chars = string.ascii_letters + string.digits + "!@#$%^&*"
             generated_password = ''.join(secrets.choice(password_chars) for _ in range(password_length))
             
-            # Create username from email (before @ symbol)
-            username_base = client_email.split('@')[0]
-            username = username_base
-            
-            # Ensure username is unique
-            counter = 1
-            while User.objects.filter(username=username).exists():
-                username = f"{username_base}{counter}"
-                counter += 1
-            
-            # Create the client user account
-            client_user = User.objects.create_user(
-                username=username,
+            # Create the GlobalClient account in main database
+            global_client = GlobalClient(
                 email=client_email,
-                password=generated_password,
                 name=client_name,
-                role='client'  # Set role as client
+                phone=client_phone,
+                is_active=True
             )
+            global_client.set_password(generated_password)
+            global_client.save(using='default')
+            global_client.set_password(generated_password)
+            global_client.save(using='default')
             
             # Send welcome email with login credentials
             try:
-                subject = "Welcome to Our Complaint Management System - Your Account Details"
+                subject = "Welcome to Our System - Your Global Account Details"
                 
                 # Build dashboard URL (update with your actual frontend URL)
                 dashboard_url = getattr(settings, 'CLIENT_DASHBOARD_URL', 'http://localhost:3000/client/dashboard')
@@ -1050,24 +1046,25 @@ class ClientComplaintSubmissionSerializer(serializers.ModelSerializer):
                 message = f"""
 Hello {client_name},
 
-Thank you for submitting your complaint. We have automatically created an account for you to track all your complaints.
+Thank you for submitting your complaint. We have automatically created a GLOBAL account for you.
 
-Your Login Credentials:
+Your Login Credentials (works on ALL our systems):
 Email: {client_email}
 Password: {generated_password}
 
-You can now log in at: {login_url}
+🌐 This account works across all our tenants - you can use it anywhere!
+
+You can log in at: {login_url}
 
 After logging in, you will be able to:
 - View all your complaints in one place
 - Track the status and progress of each complaint
-- View detailed updates and task completion
-- Submit new complaints
-- Communicate with our team
+- Submit complaints to any tenant
+- Access your account from any subdomain
 
 Dashboard URL: {dashboard_url}
 
-IMPORTANT: Please save these credentials securely. We recommend changing your password after your first login.
+IMPORTANT: Please save these credentials securely. You can change your password after your first login.
 
 If you have any questions or need assistance, please don't hesitate to contact us.
 
@@ -1079,11 +1076,16 @@ The Support Team
                 <html>
                 <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
                     <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-                        <h2 style="color: #2563eb;">Welcome to Our Complaint Management System</h2>
+                        <h2 style="color: #2563eb;">Welcome to Our System 🌐</h2>
                         
                         <p>Hello {client_name},</p>
                         
-                        <p>Thank you for submitting your complaint. We have automatically created an account for you to track all your complaints.</p>
+                        <p>Thank you for submitting your complaint. We have automatically created a <strong>Global Account</strong> for you.</p>
+                        
+                        <div style="background: #f0fdf4; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #10b981;">
+                            <h3 style="margin-top: 0;">✅ Global Account Created</h3>
+                            <p style="font-size: 14px; color: #059669;">This account works across ALL our tenants - one login for everything!</p>
+                        </div>
                         
                         <div style="background: #f8fafc; padding: 20px; border-radius: 5px; margin: 20px 0; border-left: 4px solid #2563eb;">
                             <h3 style="margin-top: 0;">Your Login Credentials</h3>
@@ -1100,15 +1102,15 @@ The Support Team
                         
                         <h3>What You Can Do:</h3>
                         <ul>
-                            <li>View all your complaints in one place</li>
-                            <li>Track the status and progress of each complaint</li>
-                            <li>View detailed updates and task completion</li>
-                            <li>Submit new complaints</li>
-                            <li>Communicate with our team</li>
+                            <li>✅ View all your complaints in one place</li>
+                            <li>✅ Track the status and progress of each complaint</li>
+                            <li>✅ Submit complaints to any tenant</li>
+                            <li>✅ Access your account from any subdomain</li>
+                            <li>✅ One account for all our services</li>
                         </ul>
                         
                         <div style="background: #fef3c7; padding: 15px; border-radius: 5px; margin: 20px 0;">
-                            <strong>⚠️ Important:</strong> Please save these credentials securely. We recommend changing your password after your first login.
+                            <strong>⚠️ Important:</strong> Please save these credentials securely. You can change your password after your first login.
                         </div>
                         
                         <p>If you have any questions or need assistance, please don't hesitate to contact us.</p>
@@ -1128,17 +1130,15 @@ The Support Team
                     fail_silently=False
                 )
                 
-                print(f"✓ Welcome email sent to {client_email} with login credentials")
+                print(f"✓ Welcome email sent to {client_email} with GLOBAL account credentials")
                 
             except Exception as e:
                 print(f"✗ Failed to send welcome email to {client_email}: {str(e)}")
                 # Don't fail the complaint creation if email fails
         
-        # Create the complaint and link it to the client user
-        complaint = ClientComplaint.objects.create(
-            **validated_data,
-            client_user=client_user  # Link to the client user account
-        )
+        # Create the complaint (note: we removed client_user field linking for now)
+        # You may want to add a global_client field to ClientComplaint model later
+        complaint = ClientComplaint.objects.create(**validated_data)
         
         return complaint
 

@@ -467,7 +467,7 @@
                     {% if clients %}
                         {% for client in clients %}
                         <tr data-tenant="{{ client.tenant_subdomain }}" data-status="{% if client.is_active %}active{% else %}inactive{% endif %}">
-                            <td><strong>{{ client.first_name }} {{ client.last_name }}</strong></td>
+                            <td><strong>{{ client.name }}</strong></td>
                             <td class="icon-email">{{ client.email }}</td>
                             <td class="icon-phone">{{ client.phone|default:"غير متوفر" }}</td>
                             <td>

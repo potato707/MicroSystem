@@ -52,6 +52,41 @@ class EmailVerificationCode(models.Model):
         return f"{self.user.email} -> {self.new_email} ({self.verification_code})"
 
 
+class GlobalClient(models.Model):
+    """
+    Global client accounts that can access any tenant
+    Stored in main database, accessible across all tenants
+    This allows a single client account to work with multiple tenants
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    email = models.EmailField(unique=True, verbose_name="البريد الإلكتروني")
+    password = models.CharField(max_length=128, verbose_name="كلمة المرور")
+    name = models.CharField(max_length=200, verbose_name="الاسم")
+    phone = models.CharField(max_length=20, blank=True, verbose_name="الهاتف")
+    is_active = models.BooleanField(default=True, verbose_name="نشط")
+    date_joined = models.DateTimeField(auto_now_add=True, verbose_name="تاريخ التسجيل")
+    last_login = models.DateTimeField(null=True, blank=True, verbose_name="آخر تسجيل دخول")
+    
+    class Meta:
+        verbose_name = "عميل عام"
+        verbose_name_plural = "عملاء عامون"
+        db_table = 'hr_management_globalclient'
+        ordering = ['-date_joined']
+    
+    def set_password(self, raw_password):
+        """Hash and set password"""
+        from django.contrib.auth.hashers import make_password
+        self.password = make_password(raw_password)
+    
+    def check_password(self, raw_password):
+        """Check if provided password matches"""
+        from django.contrib.auth.hashers import check_password
+        return check_password(raw_password, self.password)
+    
+    def __str__(self):
+        return f"{self.name} ({self.email})"
+
+
 class Employee(models.Model):
     EMPLOYMENT_STATUS = [
         ('active', 'نشط'),

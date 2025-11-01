@@ -42,7 +42,7 @@ from .client_portal_views import (
 
 # Import client authentication and dashboard views
 from .client_auth_views import (
-    ClientLoginView, ClientLogoutView, ClientCurrentUserView,
+    ClientRegisterView, ClientLoginView, ClientLogoutView, ClientCurrentUserView,
     ClientChangePasswordView, ClientProfileUpdateView,
     CheckPhoneExistsView, CheckEmailExistsView, PasswordResetRequestView, PasswordResetConfirmView,
     SendEmailVerificationCodeView, VerifyEmailCodeAndUpdateView, AllClientsFromAllTenantsView,
@@ -175,6 +175,7 @@ urlpatterns = [
     path("public/password-reset/confirm/", PasswordResetConfirmView.as_view(), name="password-reset-confirm"),
     
     # Client Authentication Endpoints (for client login/logout)
+    path("client/auth/register/", ClientRegisterView.as_view(), name="client-register"),
     path("client/auth/login/", ClientLoginView.as_view(), name="client-login"),
     path("client/auth/logout/", ClientLogoutView.as_view(), name="client-logout"),
     path("client/auth/me/", ClientCurrentUserView.as_view(), name="client-current-user"),

@@ -14,7 +14,7 @@ from django.conf import settings
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
 from django.utils import timezone
-from .models import User, ClientComplaint, EmailVerificationCode
+from .models import User, ClientComplaint, EmailVerificationCode, GlobalClient
 from .serializers import UserSerializer
 import secrets
 import random
@@ -22,14 +22,87 @@ import string
 from datetime import datetime, timedelta
 
 
-class ClientLoginView(APIView):
+class ClientRegisterView(APIView):
     """
-    Client login endpoint using email and password
-    Returns JWT tokens for authentication
+    Register a new client in GlobalClient table (main database)
+    This client can then login from any tenant
     """
     permission_classes = [AllowAny]
     
     def post(self, request):
+        email = request.data.get('email')
+        password = request.data.get('password')
+        name = request.data.get('name')
+        phone = request.data.get('phone', '')
+        
+        # Validate input
+        if not all([email, password, name]):
+            return Response({
+                'error': 'Email, password, and name are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if email already exists
+        if GlobalClient.objects.using('default').filter(email=email).exists():
+            return Response({
+                'error': 'This email is already registered'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate password strength
+        if len(password) < 8:
+            return Response({
+                'error': 'Password must be at least 8 characters long'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Create new GlobalClient
+        try:
+            client = GlobalClient(
+                email=email,
+                name=name,
+                phone=phone,
+                is_active=True
+            )
+            client.set_password(password)
+            client.save(using='default')
+            
+            # Generate JWT tokens
+            refresh = RefreshToken()
+            refresh['user_id'] = str(client.id)
+            refresh['email'] = client.email
+            refresh['name'] = client.name
+            refresh['role'] = 'global_client'
+            
+            return Response({
+                'message': 'Registration successful',
+                'user': {
+                    'id': str(client.id),
+                    'email': client.email,
+                    'name': client.name,
+                    'phone': client.phone,
+                    'is_active': client.is_active,
+                    'role': 'client',
+                    'date_joined': client.date_joined.isoformat() if client.date_joined else None
+                },
+                'access': str(refresh.access_token),
+                'refresh': str(refresh)
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            return Response({
+                'error': f'Registration failed: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+class ClientLoginView(APIView):
+    """
+    Client login endpoint using GlobalClient from main database
+    Works across all tenants - one account for all tenants
+    """
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        from .models import GlobalClient
+        
         email = request.data.get('email')
         password = request.data.get('password')
         
@@ -39,42 +112,49 @@ class ClientLoginView(APIView):
                 'error': 'Both email and password are required'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Find user by email
+        # Find client in main database (not tenant-specific)
         try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
+            client = GlobalClient.objects.using('default').get(email=email)
+        except GlobalClient.DoesNotExist:
             return Response({
                 'error': 'Invalid email or password'
             }, status=status.HTTP_401_UNAUTHORIZED)
         
-        # Check if user is a client
-        if user.role != 'client':
-            return Response({
-                'error': 'This login is for clients only. Please use the appropriate login page.'
-            }, status=status.HTTP_403_FORBIDDEN)
-        
-        # Authenticate user
-        user_auth = authenticate(username=user.username, password=password)
-        if user_auth is None:
+        # Check password
+        if not client.check_password(password):
             return Response({
                 'error': 'Invalid email or password'
             }, status=status.HTTP_401_UNAUTHORIZED)
         
-        # Check if user is active
-        if not user.is_active:
+        # Check if client is active
+        if not client.is_active:
             return Response({
                 'error': 'Your account has been deactivated. Please contact support.'
             }, status=status.HTTP_403_FORBIDDEN)
         
-        # Generate JWT tokens
-        refresh = RefreshToken.for_user(user)
+        # Update last login
+        client.last_login = timezone.now()
+        client.save(using='default')
         
-        # Serialize user data
-        user_serializer = UserSerializer(user)
+        # Generate JWT tokens with client info
+        refresh = RefreshToken()
+        refresh['user_id'] = str(client.id)
+        refresh['email'] = client.email
+        refresh['name'] = client.name
+        refresh['role'] = 'global_client'
         
         return Response({
             'message': 'Login successful',
-            'user': user_serializer.data,
+            'user': {
+                'id': str(client.id),
+                'email': client.email,
+                'name': client.name,
+                'phone': client.phone,
+                'is_active': client.is_active,
+                'role': 'client',
+                'date_joined': client.date_joined.isoformat() if client.date_joined else None,
+                'last_login': client.last_login.isoformat() if client.last_login else None
+            },
             'access': str(refresh.access_token),
             'refresh': str(refresh)
         }, status=status.HTTP_200_OK)
@@ -268,8 +348,8 @@ class CheckPhoneExistsView(APIView):
 
 class CheckEmailExistsView(APIView):
     """
-    Check if an email already exists in the system
-    Used for complaint form validation
+    Check if an email already exists in the GlobalClient system
+    Used for registration and complaint form validation
     """
     permission_classes = [AllowAny]
     
@@ -281,19 +361,10 @@ class CheckEmailExistsView(APIView):
                 'error': 'Email is required'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Check if email exists in User table (client accounts)
-        user_exists = User.objects.filter(email=email, role='client').exists()
+        # Check if email exists in GlobalClient table (main database)
+        client_exists = GlobalClient.objects.using('default').filter(email=email).exists()
         
-        if user_exists:
-            return Response({
-                'exists': True,
-                'message': 'البريد الإلكتروني مسجل من قبل، يرجى تسجيل الدخول'
-            }, status=status.HTTP_200_OK)
-        
-        # Also check in ClientComplaint table
-        complaint_exists = ClientComplaint.objects.filter(client_email=email).exists()
-        
-        if complaint_exists:
+        if client_exists:
             return Response({
                 'exists': True,
                 'message': 'البريد الإلكتروني مسجل من قبل، يرجى تسجيل الدخول'
