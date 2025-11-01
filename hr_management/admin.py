@@ -290,3 +290,15 @@ class TenantAPIKeyAdmin(admin.ModelAdmin):
     ordering = ['-created_at']
     readonly_fields = ['created_at', 'last_used']
 
+
+@admin.register(EmailVerificationCode)
+class EmailVerificationCodeAdmin(admin.ModelAdmin):
+    list_display = ['user', 'new_email', 'verification_code', 'created_at', 'expires_at', 'is_verified']
+    list_filter = ['is_verified', 'created_at']
+    search_fields = ['user__email', 'new_email', 'verification_code']
+    ordering = ['-created_at']
+    readonly_fields = ['created_at']
+    
+    def has_add_permission(self, request):
+        # Prevent manual creation via admin
+        return False

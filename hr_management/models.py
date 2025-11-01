@@ -27,6 +27,31 @@ class User(AbstractUser):
 
     REQUIRED_FIELDS = ['email', 'role', 'name']
 
+
+class EmailVerificationCode(models.Model):
+    """
+    Store email verification codes for email change requests
+    """
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='email_verification_codes')
+    new_email = models.EmailField(verbose_name="البريد الإلكتروني الجديد")
+    verification_code = models.CharField(max_length=6, verbose_name="كود التحقق")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="تاريخ الإنشاء")
+    expires_at = models.DateTimeField(verbose_name="تاريخ الانتهاء")
+    is_verified = models.BooleanField(default=False, verbose_name="تم التحقق")
+    
+    class Meta:
+        verbose_name = "كود تحقق البريد الإلكتروني"
+        verbose_name_plural = "أكواد تحقق البريد الإلكتروني"
+        ordering = ['-created_at']
+    
+    def is_valid(self):
+        """Check if code is still valid and not expired"""
+        return not self.is_verified and timezone.now() < self.expires_at
+    
+    def __str__(self):
+        return f"{self.user.email} -> {self.new_email} ({self.verification_code})"
+
+
 class Employee(models.Model):
     EMPLOYMENT_STATUS = [
         ('active', 'نشط'),

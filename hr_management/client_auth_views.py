@@ -13,9 +13,12 @@ from django.core.mail import send_mail
 from django.conf import settings
 from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.utils.encoding import force_bytes, force_str
-from .models import User, ClientComplaint
+from django.utils import timezone
+from .models import User, ClientComplaint, EmailVerificationCode
 from .serializers import UserSerializer
 import secrets
+import random
+import string
 from datetime import datetime, timedelta
 
 
@@ -255,14 +258,51 @@ class CheckPhoneExistsView(APIView):
         if existing_complaint:
             return Response({
                 'exists': True,
-                'email': existing_complaint.client_email,
-                'name': existing_complaint.client_name,
-                'message': 'أنت مسجل من قبل، يرجى تسجيل الدخول'
+                'message': 'رقم الهاتف مسجل من قبل، يرجى تسجيل الدخول'
             }, status=status.HTTP_200_OK)
         
         return Response({
             'exists': False,
             'message': 'رقم الهاتف غير مسجل، يمكنك المتابعة'
+        }, status=status.HTTP_200_OK)
+
+
+class CheckEmailExistsView(APIView):
+    """
+    Check if an email already exists in the system
+    Used for complaint form validation
+    """
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        email = request.data.get('email')
+        
+        if not email:
+            return Response({
+                'error': 'Email is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if email exists in User table (client accounts)
+        user_exists = User.objects.filter(email=email, role='client').exists()
+        
+        if user_exists:
+            return Response({
+                'exists': True,
+                'message': 'البريد الإلكتروني مسجل من قبل، يرجى تسجيل الدخول'
+            }, status=status.HTTP_200_OK)
+        
+        # Also check in ClientComplaint table
+        complaint_exists = ClientComplaint.objects.filter(client_email=email).exists()
+        
+        if complaint_exists:
+            return Response({
+                'exists': True,
+                'message': 'البريد الإلكتروني مسجل من قبل، يرجى تسجيل الدخول'
+            }, status=status.HTTP_200_OK)
+        
+        return Response({
+            'exists': False,
+            'message': 'البريد الإلكتروني غير مسجل، يمكنك المتابعة'
         }, status=status.HTTP_200_OK)
 
 
@@ -392,5 +432,155 @@ class PasswordResetConfirmView(APIView):
         
         return Response({
             'message': 'Password has been reset successfully. You can now login with your new password.'
+        }, status=status.HTTP_200_OK)
+
+
+class SendEmailVerificationCodeView(APIView):
+    """
+    Send verification code to new email for email change requests
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        # Verify user is a client
+        if request.user.role != 'client':
+            return Response({
+                'error': 'This endpoint is for clients only'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        new_email = request.data.get('new_email')
+        
+        if not new_email:
+            return Response({
+                'error': 'New email is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if new email is different from current
+        if new_email == request.user.email:
+            return Response({
+                'error': 'New email must be different from current email'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if email is already in use by another user
+        if User.objects.filter(email=new_email).exclude(id=request.user.id).exists():
+            return Response({
+                'error': 'This email is already in use'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Generate 6-digit verification code
+        verification_code = ''.join(random.choices(string.digits, k=6))
+        
+        # Delete old unverified codes for this user
+        EmailVerificationCode.objects.filter(user=request.user, is_verified=False).delete()
+        
+        # Create new verification code (expires in 15 minutes)
+        expires_at = timezone.now() + timedelta(minutes=15)
+        EmailVerificationCode.objects.create(
+            user=request.user,
+            new_email=new_email,
+            verification_code=verification_code,
+            expires_at=expires_at
+        )
+        
+        # Send verification email
+        try:
+            subject = "تأكيد تغيير البريد الإلكتروني - Verification Code"
+            message = f"""
+مرحباً {request.user.name},
+
+لقد طلبت تغيير بريدك الإلكتروني إلى: {new_email}
+
+كود التحقق الخاص بك هو: {verification_code}
+
+هذا الكود صالح لمدة 15 دقيقة فقط.
+
+إذا لم تطلب هذا التغيير، يرجى تجاهل هذه الرسالة.
+
+---
+
+Hello {request.user.name},
+
+You have requested to change your email to: {new_email}
+
+Your verification code is: {verification_code}
+
+This code is valid for 15 minutes only.
+
+If you did not request this change, please ignore this message.
+"""
+            send_mail(
+                subject,
+                message,
+                settings.DEFAULT_FROM_EMAIL,
+                [new_email],
+                fail_silently=False,
+            )
+        except Exception as e:
+            return Response({
+                'error': 'Failed to send verification email. Please try again later.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({
+            'message': 'Verification code sent to your new email address'
+        }, status=status.HTTP_200_OK)
+
+
+class VerifyEmailCodeAndUpdateView(APIView):
+    """
+    Verify code and update email address
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        # Verify user is a client
+        if request.user.role != 'client':
+            return Response({
+                'error': 'This endpoint is for clients only'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        verification_code = request.data.get('verification_code')
+        
+        if not verification_code:
+            return Response({
+                'error': 'Verification code is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Find the verification code
+        try:
+            code_record = EmailVerificationCode.objects.get(
+                user=request.user,
+                verification_code=verification_code,
+                is_verified=False
+            )
+        except EmailVerificationCode.DoesNotExist:
+            return Response({
+                'error': 'Invalid verification code'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if code is expired
+        if not code_record.is_valid():
+            return Response({
+                'error': 'Verification code has expired'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if email is still available
+        if User.objects.filter(email=code_record.new_email).exclude(id=request.user.id).exists():
+            return Response({
+                'error': 'This email is now in use by another user'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Update email
+        request.user.email = code_record.new_email
+        request.user.save()
+        
+        # Mark code as verified
+        code_record.is_verified = True
+        code_record.save()
+        
+        # Return updated user data
+        user_serializer = UserSerializer(request.user)
+        return Response({
+            'message': 'Email updated successfully',
+            'user': user_serializer.data
         }, status=status.HTTP_200_OK)
 

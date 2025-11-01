@@ -44,7 +44,8 @@ from .client_portal_views import (
 from .client_auth_views import (
     ClientLoginView, ClientLogoutView, ClientCurrentUserView,
     ClientChangePasswordView, ClientProfileUpdateView,
-    CheckPhoneExistsView, PasswordResetRequestView, PasswordResetConfirmView
+    CheckPhoneExistsView, CheckEmailExistsView, PasswordResetRequestView, PasswordResetConfirmView,
+    SendEmailVerificationCodeView, VerifyEmailCodeAndUpdateView
 )
 from .client_dashboard_views import (
     ClientDashboardStatsView, ClientComplaintsListView, ClientComplaintDetailView,
@@ -168,6 +169,7 @@ urlpatterns = [
     path("public/complaint-categories/", PublicComplaintCategoryListView.as_view(), name="public-complaint-categories"),
     path("public/client-complaints/", PublicClientComplaintCreateView.as_view(), name="public-client-complaint-create"),
     path("public/check-phone/", CheckPhoneExistsView.as_view(), name="check-phone-exists"),
+    path("public/check-email/", CheckEmailExistsView.as_view(), name="check-email-exists"),
     path("public/password-reset/request/", PasswordResetRequestView.as_view(), name="password-reset-request"),
     path("public/password-reset/confirm/", PasswordResetConfirmView.as_view(), name="password-reset-confirm"),
     
@@ -177,6 +179,8 @@ urlpatterns = [
     path("client/auth/me/", ClientCurrentUserView.as_view(), name="client-current-user"),
     path("client/auth/change-password/", ClientChangePasswordView.as_view(), name="client-change-password"),
     path("client/auth/profile/", ClientProfileUpdateView.as_view(), name="client-profile-update"),
+    path("client/auth/send-verification-code/", SendEmailVerificationCodeView.as_view(), name="send-email-verification"),
+    path("client/auth/verify-email-code/", VerifyEmailCodeAndUpdateView.as_view(), name="verify-email-code"),
     
     # Client Dashboard Endpoints (authenticated clients only)
     path("client/dashboard/stats/", ClientDashboardStatsView.as_view(), name="client-dashboard-stats"),
