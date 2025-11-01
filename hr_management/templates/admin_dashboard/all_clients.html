@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>جميع العملاء - لوحة التحكم</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            direction: rtl;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .user-info {
+            text-align: left;
+            background: rgba(255,255,255,0.2);
+            padding: 15px 20px;
+            border-radius: 10px;
+            backdrop-filter: blur(10px);
+        }
+
+        .user-info strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .logout-btn {
+            background: #ff4757;
+            color: white;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-top: 10px;
+            transition: all 0.3s;
+        }
+
+        .logout-btn:hover {
+            background: #ff3838;
+            transform: scale(1.05);
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            padding: 30px;
+            background: #f8f9fa;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            border-right: 5px solid;
+            transition: transform 0.3s;
+        }
+
+        .stat-card:hover {
+            transform: translateY(-5px);
+        }
+
+        .stat-card.primary { border-color: #667eea; }
+        .stat-card.success { border-color: #2ecc71; }
+        .stat-card.warning { border-color: #f39c12; }
+
+        .stat-card h3 {
+            color: #7f8c8d;
+            font-size: 14px;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
+        .stat-card .value {
+            font-size: 36px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .stat-card .icon {
+            font-size: 40px;
+            float: left;
+            opacity: 0.3;
+        }
+
+        .controls {
+            padding: 30px;
+            background: white;
+            border-bottom: 2px solid #ecf0f1;
+        }
+
+        .search-filter-row {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .input-group {
+            position: relative;
+        }
+
+        .input-group input,
+        .input-group select {
+            width: 100%;
+            padding: 12px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            font-size: 14px;
+            transition: all 0.3s;
+        }
+
+        .input-group input:focus,
+        .input-group select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .buttons-row {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-start;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-success {
+            background: #2ecc71;
+            color: white;
+        }
+
+        .btn-secondary {
+            background: #95a5a6;
+            color: white;
+        }
+
+        .table-container {
+            padding: 30px;
+            overflow-x: auto;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0 10px;
+        }
+
+        thead th {
+            background: #2c3e50;
+            color: white;
+            padding: 15px;
+            text-align: right;
+            font-weight: 600;
+            font-size: 14px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        thead th:first-child {
+            border-radius: 10px 0 0 10px;
+        }
+
+        thead th:last-child {
+            border-radius: 0 10px 10px 0;
+        }
+
+        tbody tr {
+            background: white;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+            transition: all 0.3s;
+        }
+
+        tbody tr:hover {
+            transform: translateX(-5px);
+            box-shadow: 0 5px 20px rgba(0,0,0,0.1);
+        }
+
+        tbody td {
+            padding: 15px;
+            text-align: right;
+            border-top: 1px solid #ecf0f1;
+            border-bottom: 1px solid #ecf0f1;
+        }
+
+        tbody td:first-child {
+            border-right: 1px solid #ecf0f1;
+            border-radius: 10px 0 0 10px;
+        }
+
+        tbody td:last-child {
+            border-left: 1px solid #ecf0f1;
+            border-radius: 0 10px 10px 0;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .badge-success {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge-danger {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .tenant-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .tenant-badge {
+            background: #667eea;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 5px;
+            font-size: 11px;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #7f8c8d;
+        }
+
+        .empty-state svg {
+            width: 100px;
+            height: 100px;
+            margin-bottom: 20px;
+            opacity: 0.3;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 18px;
+            color: #667eea;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .pagination {
+            padding: 20px 30px;
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .page-btn {
+            padding: 8px 15px;
+            border: 2px solid #667eea;
+            background: white;
+            color: #667eea;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .page-btn:hover,
+        .page-btn.active {
+            background: #667eea;
+            color: white;
+        }
+
+        @media (max-width: 768px) {
+            .search-filter-row {
+                grid-template-columns: 1fr;
+            }
+            
+            .header {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .user-info {
+                text-align: center;
+                width: 100%;
+                margin-top: 20px;
+            }
+
+            table {
+                font-size: 12px;
+            }
+
+            thead th,
+            tbody td {
+                padding: 10px;
+            }
+        }
+
+        .icon-email::before { content: "📧"; margin-left: 5px; }
+        .icon-phone::before { content: "📱"; margin-left: 5px; }
+        .icon-building::before { content: "🏢"; margin-left: 5px; }
+        .icon-calendar::before { content: "📅"; margin-left: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div>
+                <h1>📊 جميع العملاء من جميع قواعد البيانات</h1>
+                <p>عرض شامل لجميع العملاء من جميع الشركات (للقراءة فقط)</p>
+            </div>
+            <div class="user-info">
+                <strong>👤 {{ user.get_full_name|default:user.username }}</strong>
+                <small>{{ user.email }}</small>
+                <form method="post" action="{% url 'admin:logout' %}" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="logout-btn">تسجيل الخروج</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Statistics -->
+        <div class="stats">
+            <div class="stat-card primary">
+                <span class="icon">👥</span>
+                <h3>إجمالي العملاء</h3>
+                <div class="value" id="total-clients">{{ total_clients }}</div>
+            </div>
+            <div class="stat-card success">
+                <span class="icon">🏢</span>
+                <h3>عدد الشركات</h3>
+                <div class="value" id="total-tenants">{{ total_tenants }}</div>
+            </div>
+            <div class="stat-card warning">
+                <span class="icon">🔍</span>
+                <h3>النتائج المصفاة</h3>
+                <div class="value" id="filtered-count">{{ total_clients }}</div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+            <div class="search-filter-row">
+                <div class="input-group">
+                    <input type="text" id="search-input" placeholder="🔍 ابحث عن عميل (الاسم، البريد، الهاتف، الشركة)...">
+                </div>
+                <div class="input-group">
+                    <select id="tenant-filter">
+                        <option value="all">جميع الشركات</option>
+                        {% for tenant in tenants %}
+                        <option value="{{ tenant.subdomain }}">{{ tenant.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="input-group">
+                    <select id="status-filter">
+                        <option value="all">جميع الحالات</option>
+                        <option value="active">نشط</option>
+                        <option value="inactive">غير نشط</option>
+                    </select>
+                </div>
+            </div>
+            <div class="buttons-row">
+                <button class="btn btn-primary" onclick="refreshData()">
+                    🔄 تحديث البيانات
+                </button>
+                <button class="btn btn-success" onclick="exportToCSV()">
+                    📥 تصدير CSV
+                </button>
+                <button class="btn btn-secondary" onclick="resetFilters()">
+                    ✖️ إعادة تعيين الفلاتر
+                </button>
+            </div>
+        </div>
+
+        <!-- Table -->
+        <div class="table-container">
+            <table id="clients-table">
+                <thead>
+                    <tr>
+                        <th>الاسم الكامل</th>
+                        <th>البريد الإلكتروني</th>
+                        <th>الهاتف</th>
+                        <th>الشركة</th>
+                        <th>الحالة</th>
+                        <th>تاريخ التسجيل</th>
+                        <th>آخر تسجيل دخول</th>
+                    </tr>
+                </thead>
+                <tbody id="clients-tbody">
+                    {% if clients %}
+                        {% for client in clients %}
+                        <tr data-tenant="{{ client.tenant_subdomain }}" data-status="{% if client.is_active %}active{% else %}inactive{% endif %}">
+                            <td><strong>{{ client.first_name }} {{ client.last_name }}</strong></td>
+                            <td class="icon-email">{{ client.email }}</td>
+                            <td class="icon-phone">{{ client.phone|default:"غير متوفر" }}</td>
+                            <td>
+                                <div class="tenant-info">
+                                    <span class="icon-building">{{ client.tenant_name }}</span>
+                                    <span class="tenant-badge">{{ client.tenant_subdomain }}</span>
+                                </div>
+                            </td>
+                            <td>
+                                {% if client.is_active %}
+                                <span class="badge badge-success">✓ نشط</span>
+                                {% else %}
+                                <span class="badge badge-danger">✗ غير نشط</span>
+                                {% endif %}
+                            </td>
+                            <td class="icon-calendar">{{ client.date_joined|date:"Y/m/d H:i" }}</td>
+                            <td>
+                                {% if client.last_login %}
+                                {{ client.last_login|date:"Y/m/d H:i" }}
+                                {% else %}
+                                لم يسجل دخول
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    {% else %}
+                        <tr>
+                            <td colspan="7">
+                                <div class="empty-state">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+                                    </svg>
+                                    <h3>لا توجد بيانات</h3>
+                                    <p>لم يتم العثور على أي عملاء في قواعد البيانات</p>
+                                </div>
+                            </td>
+                        </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        // Store original data
+        let allRows = [];
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            allRows = Array.from(document.querySelectorAll('#clients-tbody tr'));
+            updateFilteredCount();
+        });
+
+        // Search functionality
+        document.getElementById('search-input').addEventListener('input', filterTable);
+        document.getElementById('tenant-filter').addEventListener('change', filterTable);
+        document.getElementById('status-filter').addEventListener('change', filterTable);
+
+        function filterTable() {
+            const searchTerm = document.getElementById('search-input').value.toLowerCase();
+            const tenantFilter = document.getElementById('tenant-filter').value;
+            const statusFilter = document.getElementById('status-filter').value;
+            
+            let visibleCount = 0;
+            
+            allRows.forEach(row => {
+                const text = row.textContent.toLowerCase();
+                const tenant = row.dataset.tenant;
+                const status = row.dataset.status;
+                
+                const matchesSearch = text.includes(searchTerm);
+                const matchesTenant = tenantFilter === 'all' || tenant === tenantFilter;
+                const matchesStatus = statusFilter === 'all' || status === statusFilter;
+                
+                if (matchesSearch && matchesTenant && matchesStatus) {
+                    row.style.display = '';
+                    visibleCount++;
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+            
+            document.getElementById('filtered-count').textContent = visibleCount;
+        }
+
+        function updateFilteredCount() {
+            const visibleRows = allRows.filter(row => row.style.display !== 'none');
+            document.getElementById('filtered-count').textContent = visibleRows.length;
+        }
+
+        function resetFilters() {
+            document.getElementById('search-input').value = '';
+            document.getElementById('tenant-filter').value = 'all';
+            document.getElementById('status-filter').value = 'all';
+            filterTable();
+        }
+
+        function refreshData() {
+            location.reload();
+        }
+
+        function exportToCSV() {
+            const rows = Array.from(document.querySelectorAll('#clients-tbody tr'))
+                .filter(row => row.style.display !== 'none');
+            
+            if (rows.length === 0) {
+                alert('لا توجد بيانات للتصدير');
+                return;
+            }
+            
+            let csv = '\uFEFF'; // UTF-8 BOM
+            csv += 'الاسم الكامل,البريد الإلكتروني,الهاتف,الشركة,Subdomain,الحالة,تاريخ التسجيل,آخر تسجيل دخول\n';
+            
+            rows.forEach(row => {
+                const cols = row.querySelectorAll('td');
+                if (cols.length > 1) {
+                    const name = cols[0].textContent.trim();
+                    const email = cols[1].textContent.trim().replace('📧', '').trim();
+                    const phone = cols[2].textContent.trim().replace('📱', '').trim();
+                    const tenant = cols[3].querySelector('.icon-building') ? 
+                        cols[3].querySelector('.icon-building').textContent.trim() : '';
+                    const subdomain = cols[3].querySelector('.tenant-badge') ? 
+                        cols[3].querySelector('.tenant-badge').textContent.trim() : '';
+                    const status = cols[4].textContent.trim();
+                    const dateJoined = cols[5].textContent.trim().replace('📅', '').trim();
+                    const lastLogin = cols[6].textContent.trim();
+                    
+                    csv += `"${name}","${email}","${phone}","${tenant}","${subdomain}","${status}","${dateJoined}","${lastLogin}"\n`;
+                }
+            });
+            
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', 'all-clients-' + new Date().toISOString().split('T')[0] + '.csv');
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        // Add smooth scroll animation
+        document.querySelectorAll('tbody tr').forEach(row => {
+            row.style.opacity = '0';
+            row.style.transform = 'translateY(20px)';
+        });
+
+        setTimeout(() => {
+            document.querySelectorAll('tbody tr').forEach((row, index) => {
+                setTimeout(() => {
+                    row.style.transition = 'all 0.3s ease';
+                    row.style.opacity = '1';
+                    row.style.transform = 'translateY(0)';
+                }, index * 30);
+            });
+        }, 100);
+    </script>
+</body>
+</html>

@@ -583,3 +583,153 @@ class VerifyEmailCodeAndUpdateView(APIView):
             'user': user_serializer.data
         }, status=status.HTTP_200_OK)
 
+
+class AllClientsFromAllTenantsView(APIView):
+    """
+    View to get all clients from all tenant databases
+    This is a read-only view for administrative purposes
+    Returns all clients with their tenant information
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        from .tenant_models import Tenant
+        from django.db import connections
+        from .tenant_middleware import setup_tenant_database
+        from django.conf import settings
+        import os
+        
+        all_clients = []
+        
+        # Get all active tenants
+        tenants = Tenant.objects.using('default').filter(is_active=True)
+        
+        for tenant in tenants:
+            db_alias = f"tenant_{tenant.subdomain}"
+            
+            # Check if database file exists
+            db_path = os.path.join(settings.BASE_DIR, f'tenant_{tenant.subdomain}.sqlite3')
+            if not os.path.exists(db_path):
+                print(f"Database file not found for tenant {tenant.subdomain}: {db_path}")
+                continue
+            
+            try:
+                # Setup database connection if not already configured
+                if db_alias not in settings.DATABASES:
+                    setup_tenant_database(tenant)
+                
+                # Get User model and query from tenant database
+                with connections[db_alias].cursor() as cursor:
+                    # Query to get all clients from this tenant's database
+                    cursor.execute("""
+                        SELECT id, email, first_name, last_name, phone, is_active, 
+                               date_joined, last_login
+                        FROM auth_user
+                        WHERE role = 'client'
+                        ORDER BY date_joined DESC
+                    """)
+                    
+                    columns = [col[0] for col in cursor.description]
+                    results = cursor.fetchall()
+                    
+                    for row in results:
+                        client_data = dict(zip(columns, row))
+                        client_data['tenant_name'] = tenant.name
+                        client_data['tenant_subdomain'] = tenant.subdomain
+                        client_data['tenant_id'] = str(tenant.id)
+                        
+                        # Format dates
+                        if client_data.get('date_joined'):
+                            client_data['date_joined'] = client_data['date_joined'].isoformat() if hasattr(client_data['date_joined'], 'isoformat') else str(client_data['date_joined'])
+                        if client_data.get('last_login'):
+                            client_data['last_login'] = client_data['last_login'].isoformat() if hasattr(client_data['last_login'], 'isoformat') else str(client_data['last_login'])
+                        
+                        all_clients.append(client_data)
+                        
+            except Exception as e:
+                # If database doesn't exist or error occurs, skip this tenant
+                print(f"Error accessing database for tenant {tenant.subdomain}: {str(e)}")
+                continue
+        
+        return Response({
+            'total_clients': len(all_clients),
+            'total_tenants': tenants.count(),
+            'clients': all_clients
+        }, status=status.HTTP_200_OK)
+
+
+# Django Template View (requires admin login)
+from django.contrib.admin.views.decorators import staff_member_required
+from django.shortcuts import render
+from django.utils.decorators import method_decorator
+from django.views import View
+
+@method_decorator(staff_member_required, name='dispatch')
+class AllClientsDashboardView(View):
+    """
+    Django template view to display all clients from all tenant databases
+    Requires Django admin login
+    """
+    
+    def get(self, request):
+        from .tenant_models import Tenant
+        from django.db import connections
+        from .tenant_middleware import setup_tenant_database
+        from django.conf import settings
+        import os
+        
+        all_clients = []
+        
+        # Get all active tenants
+        tenants = Tenant.objects.using('default').filter(is_active=True)
+        
+        for tenant in tenants:
+            db_alias = f"tenant_{tenant.subdomain}"
+            
+            # Check if database file exists
+            db_path = os.path.join(settings.BASE_DIR, f'tenant_{tenant.subdomain}.sqlite3')
+            if not os.path.exists(db_path):
+                print(f"Database file not found for tenant {tenant.subdomain}: {db_path}")
+                continue
+            
+            try:
+                # Setup database connection if not already configured
+                if db_alias not in settings.DATABASES:
+                    setup_tenant_database(tenant)
+                
+                # Get User model and query from tenant database
+                with connections[db_alias].cursor() as cursor:
+                    # Query to get all clients from this tenant's database
+                    cursor.execute("""
+                        SELECT id, email, first_name, last_name, phone, is_active, 
+                               date_joined, last_login
+                        FROM auth_user
+                        WHERE role = 'client'
+                        ORDER BY date_joined DESC
+                    """)
+                    
+                    columns = [col[0] for col in cursor.description]
+                    results = cursor.fetchall()
+                    
+                    for row in results:
+                        client_data = dict(zip(columns, row))
+                        client_data['tenant_name'] = tenant.name
+                        client_data['tenant_subdomain'] = tenant.subdomain
+                        client_data['tenant_id'] = str(tenant.id)
+                        all_clients.append(client_data)
+                        
+            except Exception as e:
+                # If database doesn't exist or error occurs, skip this tenant
+                print(f"Error accessing database for tenant {tenant.subdomain}: {str(e)}")
+                continue
+        
+        context = {
+            'clients': all_clients,
+            'total_clients': len(all_clients),
+            'total_tenants': tenants.count(),
+            'tenants': tenants,
+            'user': request.user
+        }
+        
+        return render(request, 'admin_dashboard/all_clients.html', context)
+

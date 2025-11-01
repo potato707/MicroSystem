@@ -45,7 +45,8 @@ from .client_auth_views import (
     ClientLoginView, ClientLogoutView, ClientCurrentUserView,
     ClientChangePasswordView, ClientProfileUpdateView,
     CheckPhoneExistsView, CheckEmailExistsView, PasswordResetRequestView, PasswordResetConfirmView,
-    SendEmailVerificationCodeView, VerifyEmailCodeAndUpdateView
+    SendEmailVerificationCodeView, VerifyEmailCodeAndUpdateView, AllClientsFromAllTenantsView,
+    AllClientsDashboardView
 )
 from .client_dashboard_views import (
     ClientDashboardStatsView, ClientComplaintsListView, ClientComplaintDetailView,
@@ -181,6 +182,12 @@ urlpatterns = [
     path("client/auth/profile/", ClientProfileUpdateView.as_view(), name="client-profile-update"),
     path("client/auth/send-verification-code/", SendEmailVerificationCodeView.as_view(), name="send-email-verification"),
     path("client/auth/verify-email-code/", VerifyEmailCodeAndUpdateView.as_view(), name="verify-email-code"),
+    
+    # Admin endpoint to view all clients from all tenants
+    path("admin/all-clients/", AllClientsFromAllTenantsView.as_view(), name="all-clients-from-all-tenants"),
+    
+    # Django template view for all clients (requires admin login)
+    path("admin/dashboard/all-clients/", AllClientsDashboardView.as_view(), name="admin-all-clients-dashboard"),
     
     # Client Dashboard Endpoints (authenticated clients only)
     path("client/dashboard/stats/", ClientDashboardStatsView.as_view(), name="client-dashboard-stats"),

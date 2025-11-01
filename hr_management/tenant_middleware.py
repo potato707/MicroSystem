@@ -81,7 +81,10 @@ def setup_tenant_database(tenant):
             'MIRROR': None,
         },
     }
-    call_command('migrate', database=db_alias, interactive=False, run_syncdb=True)
+    try:
+        call_command('migrate', database=db_alias, interactive=False, run_syncdb=True)
+    except Exception as e:
+        pass
     
     logger.info(f"Configured database for tenant {tenant.subdomain}: {db_path}")
     
