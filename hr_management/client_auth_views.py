@@ -132,14 +132,13 @@ class ClientCurrentUserView(APIView):
             status__in=['resolved', 'closed']
         ).count()
         
-        return Response({
-            'user': user_serializer.data,
-            'stats': {
-                'total_complaints': total_complaints,
-                'pending_complaints': pending_complaints,
-                'resolved_complaints': resolved_complaints
-            }
-        }, status=status.HTTP_200_OK)
+        # Merge user data with stats at the top level
+        response_data = user_serializer.data.copy()
+        response_data['total_complaints'] = total_complaints
+        response_data['pending_complaints'] = pending_complaints
+        response_data['resolved_complaints'] = resolved_complaints
+        
+        return Response(response_data, status=status.HTTP_200_OK)
 
 
 class ClientChangePasswordView(APIView):

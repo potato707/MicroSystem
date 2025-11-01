@@ -12,6 +12,7 @@ from .tenant_db_router import set_current_tenant, clear_current_tenant, get_curr
 import logging
 import os
 import threading
+from django.core.management import call_command
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +81,7 @@ def setup_tenant_database(tenant):
             'MIRROR': None,
         },
     }
+    call_command('migrate', database=db_alias, interactive=False, run_syncdb=True)
     
     logger.info(f"Configured database for tenant {tenant.subdomain}: {db_path}")
     
