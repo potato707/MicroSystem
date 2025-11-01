@@ -8,8 +8,15 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from django.contrib.auth import authenticate, login, logout
 from rest_framework_simplejwt.tokens import RefreshToken
-from .models import User
+from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from django.core.mail import send_mail
+from django.conf import settings
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.utils.encoding import force_bytes, force_str
+from .models import User, ClientComplaint
 from .serializers import UserSerializer
+import secrets
+from datetime import datetime, timedelta
 
 
 class ClientLoginView(APIView):
@@ -199,7 +206,20 @@ class ClientProfileUpdateView(APIView):
         
         # Update allowed fields
         if 'name' in request.data:
+            if not request.data['name'].strip():
+                return Response({
+                    'error': 'Name cannot be empty'
+                }, status=status.HTTP_400_BAD_REQUEST)
             user.name = request.data['name']
+        
+        if 'email' in request.data:
+            new_email = request.data['email']
+            # Check if email is already in use by another user
+            if User.objects.filter(email=new_email).exclude(id=user.id).exists():
+                return Response({
+                    'error': 'This email is already in use'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            user.email = new_email
         
         if 'profile_picture' in request.data:
             user.profile_picture = request.data['profile_picture']
@@ -212,3 +232,165 @@ class ClientProfileUpdateView(APIView):
             'message': 'Profile updated successfully',
             'user': user_serializer.data
         }, status=status.HTTP_200_OK)
+
+
+class CheckPhoneExistsView(APIView):
+    """
+    Check if a phone number already exists in the system
+    Used for complaint form validation
+    """
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        phone = request.data.get('phone')
+        
+        if not phone:
+            return Response({
+                'error': 'Phone number is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if any complaint has been submitted with this phone number
+        existing_complaint = ClientComplaint.objects.filter(client_phone=phone).first()
+        
+        if existing_complaint:
+            return Response({
+                'exists': True,
+                'email': existing_complaint.client_email,
+                'name': existing_complaint.client_name,
+                'message': 'أنت مسجل من قبل، يرجى تسجيل الدخول'
+            }, status=status.HTTP_200_OK)
+        
+        return Response({
+            'exists': False,
+            'message': 'رقم الهاتف غير مسجل، يمكنك المتابعة'
+        }, status=status.HTTP_200_OK)
+
+
+class PasswordResetRequestView(APIView):
+    """
+    Request a password reset via email
+    """
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        email = request.data.get('email')
+        
+        if not email:
+            return Response({
+                'error': 'Email is required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        try:
+            user = User.objects.get(email=email, role='client')
+        except User.DoesNotExist:
+            # Return success even if user doesn't exist for security reasons
+            return Response({
+                'message': 'If an account exists with this email, a password reset link has been sent.'
+            }, status=status.HTTP_200_OK)
+        
+        # Generate password reset token
+        token_generator = PasswordResetTokenGenerator()
+        token = token_generator.make_token(user)
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        
+        # Build reset URL
+        frontend_url = getattr(settings, 'CLIENT_FRONTEND_URL', 'http://localhost:3000')
+        reset_url = f"{frontend_url}/client/reset-password/{uid}/{token}"
+        
+        # Send email
+        try:
+            subject = "Password Reset Request - Complaint Management System"
+            message = f"""
+مرحباً {user.name},
+
+لقد طلبت إعادة تعيين كلمة المرور الخاصة بك.
+
+للمتابعة، يرجى النقر على الرابط التالي:
+{reset_url}
+
+إذا لم تطلب إعادة تعيين كلمة المرور، يرجى تجاهل هذه الرسالة.
+
+سينتهي هذا الرابط خلال 24 ساعة.
+
+Hello {user.name},
+
+You have requested to reset your password.
+
+To proceed, please click on the following link:
+{reset_url}
+
+If you did not request a password reset, please ignore this message.
+
+This link will expire in 24 hours.
+"""
+            send_mail(
+                subject,
+                message,
+                settings.DEFAULT_FROM_EMAIL,
+                [email],
+                fail_silently=False,
+            )
+        except Exception as e:
+            return Response({
+                'error': 'Failed to send reset email. Please try again later.'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+        return Response({
+            'message': 'If an account exists with this email, a password reset link has been sent.'
+        }, status=status.HTTP_200_OK)
+
+
+class PasswordResetConfirmView(APIView):
+    """
+    Confirm password reset with token and set new password
+    """
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        uid = request.data.get('uid')
+        token = request.data.get('token')
+        new_password = request.data.get('new_password')
+        confirm_password = request.data.get('confirm_password')
+        
+        # Validate input
+        if not all([uid, token, new_password, confirm_password]):
+            return Response({
+                'error': 'All fields are required'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Check if passwords match
+        if new_password != confirm_password:
+            return Response({
+                'error': 'Passwords do not match'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Validate password strength
+        if len(new_password) < 8:
+            return Response({
+                'error': 'Password must be at least 8 characters long'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Decode user ID
+        try:
+            user_id = force_str(urlsafe_base64_decode(uid))
+            user = User.objects.get(pk=user_id, role='client')
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            return Response({
+                'error': 'Invalid reset link'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Verify token
+        token_generator = PasswordResetTokenGenerator()
+        if not token_generator.check_token(user, token):
+            return Response({
+                'error': 'Invalid or expired reset link'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Set new password
+        user.set_password(new_password)
+        user.save()
+        
+        return Response({
+            'message': 'Password has been reset successfully. You can now login with your new password.'
+        }, status=status.HTTP_200_OK)
+

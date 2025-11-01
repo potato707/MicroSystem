@@ -43,7 +43,8 @@ from .client_portal_views import (
 # Import client authentication and dashboard views
 from .client_auth_views import (
     ClientLoginView, ClientLogoutView, ClientCurrentUserView,
-    ClientChangePasswordView, ClientProfileUpdateView
+    ClientChangePasswordView, ClientProfileUpdateView,
+    CheckPhoneExistsView, PasswordResetRequestView, PasswordResetConfirmView
 )
 from .client_dashboard_views import (
     ClientDashboardStatsView, ClientComplaintsListView, ClientComplaintDetailView,
@@ -166,6 +167,9 @@ urlpatterns = [
     # Client Complaint System - Public endpoints (no authentication required)
     path("public/complaint-categories/", PublicComplaintCategoryListView.as_view(), name="public-complaint-categories"),
     path("public/client-complaints/", PublicClientComplaintCreateView.as_view(), name="public-client-complaint-create"),
+    path("public/check-phone/", CheckPhoneExistsView.as_view(), name="check-phone-exists"),
+    path("public/password-reset/request/", PasswordResetRequestView.as_view(), name="password-reset-request"),
+    path("public/password-reset/confirm/", PasswordResetConfirmView.as_view(), name="password-reset-confirm"),
     
     # Client Authentication Endpoints (for client login/logout)
     path("client/auth/login/", ClientLoginView.as_view(), name="client-login"),
