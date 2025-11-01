@@ -13,6 +13,7 @@ from .serializers import (
     ClientComplaintSerializer, ClientComplaintSubmissionSerializer,
     ComplaintCategorySerializer
 )
+from .client_helpers import verify_client_role, get_client_complaints, get_client_email
 
 
 class ClientComplaintsPagination(PageNumberPagination):
@@ -30,13 +31,13 @@ class ClientDashboardStatsView(APIView):
     
     def get(self, request):
         # Verify user is a client
-        if request.user.role != 'client':
+        if not verify_client_role(request.user):
             return Response({
                 'error': 'This endpoint is for clients only'
             }, status=status.HTTP_403_FORBIDDEN)
         
         # Get all complaints for this client
-        complaints = request.user.client_complaints.all()
+        complaints = get_client_complaints(request.user)
         
         # Calculate statistics
         total_complaints = complaints.count()
@@ -86,17 +87,17 @@ class ClientComplaintsListView(APIView):
     
     def get(self, request):
         # Verify user is a client
-        if request.user.role != 'client':
+        if not verify_client_role(request.user):
             return Response({
                 'error': 'This endpoint is for clients only'
             }, status=status.HTTP_403_FORBIDDEN)
         
         # Get complaints for this client
-        complaints = request.user.client_complaints.select_related(
+        complaints = get_client_complaints(request.user).select_related(
             'category', 'reviewed_by', 'resolved_by'
         ).prefetch_related(
             'attachments', 'tasks__task', 'comments', 'status_history'
-        ).all()
+        )
         
         # Apply filters from query parameters
         status_filter = request.query_params.get('status')
@@ -141,7 +142,7 @@ class ClientComplaintDetailView(APIView):
     
     def get(self, request, complaint_id):
         # Verify user is a client
-        if request.user.role != 'client':
+        if not verify_client_role(request.user):
             return Response({
                 'error': 'This endpoint is for clients only'
             }, status=status.HTTP_403_FORBIDDEN)
@@ -155,7 +156,7 @@ class ClientComplaintDetailView(APIView):
                 'comments', 'status_history'
             ),
             id=complaint_id,
-            client_user=request.user  # Ensure client owns this complaint
+            client_email=get_client_email(request.user)  # Ensure client owns this complaint
         )
         
         # Serialize and return
@@ -171,7 +172,7 @@ class ClientSubmitComplaintView(APIView):
     
     def post(self, request):
         # Verify user is a client
-        if request.user.role != 'client':
+        if not verify_client_role(request.user):
             return Response({
                 'error': 'This endpoint is for clients only'
             }, status=status.HTTP_403_FORBIDDEN)
@@ -224,7 +225,7 @@ class ClientAvailableCategoriesView(APIView):
     
     def get(self, request):
         # Verify user is a client
-        if request.user.role != 'client':
+        if not verify_client_role(request.user):
             return Response({
                 'error': 'This endpoint is for clients only'
             }, status=status.HTTP_403_FORBIDDEN)
@@ -244,7 +245,7 @@ class ClientComplaintStatusHistoryView(APIView):
     
     def get(self, request, complaint_id):
         # Verify user is a client
-        if request.user.role != 'client':
+        if not verify_client_role(request.user):
             return Response({
                 'error': 'This endpoint is for clients only'
             }, status=status.HTTP_403_FORBIDDEN)
@@ -253,7 +254,7 @@ class ClientComplaintStatusHistoryView(APIView):
         complaint = get_object_or_404(
             ClientComplaint,
             id=complaint_id,
-            client_user=request.user
+            client_email=get_client_email(request.user)
         )
         
         # Get status history
@@ -280,7 +281,7 @@ class ClientComplaintRepliesView(APIView):
     
     def get(self, request, complaint_id):
         # Verify user is a client
-        if request.user.role != 'client':
+        if not verify_client_role(request.user):
             return Response({
                 'error': 'This endpoint is for clients only'
             }, status=status.HTTP_403_FORBIDDEN)
@@ -289,7 +290,7 @@ class ClientComplaintRepliesView(APIView):
         complaint = get_object_or_404(
             ClientComplaint,
             id=complaint_id,
-            client_user=request.user
+            client_email=get_client_email(request.user)
         )
         
         # Get all communication
@@ -337,7 +338,7 @@ class ClientComplaintAddReplyView(APIView):
     
     def post(self, request, complaint_id):
         # Verify user is a client
-        if request.user.role != 'client':
+        if not verify_client_role(request.user):
             return Response({
                 'error': 'This endpoint is for clients only'
             }, status=status.HTTP_403_FORBIDDEN)
@@ -346,7 +347,7 @@ class ClientComplaintAddReplyView(APIView):
         complaint = get_object_or_404(
             ClientComplaint,
             id=complaint_id,
-            client_user=request.user
+            client_email=get_client_email(request.user)
         )
         
         reply_text = request.data.get('reply_text')
@@ -410,7 +411,7 @@ class ClientComplaintDeleteReplyView(APIView):
     
     def delete(self, request, complaint_id, reply_id):
         # Verify user is a client
-        if request.user.role != 'client':
+        if not verify_client_role(request.user):
             return Response({
                 'error': 'This endpoint is for clients only'
             }, status=status.HTTP_403_FORBIDDEN)
@@ -419,7 +420,7 @@ class ClientComplaintDeleteReplyView(APIView):
         complaint = get_object_or_404(
             ClientComplaint,
             id=complaint_id,
-            client_user=request.user
+            client_email=get_client_email(request.user)
         )
         
         # Get reply and verify it belongs to this complaint and client

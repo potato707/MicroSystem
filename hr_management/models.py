@@ -83,6 +83,41 @@ class GlobalClient(models.Model):
         from django.contrib.auth.hashers import check_password
         return check_password(raw_password, self.password)
     
+    # Django authentication compatibility properties
+    @property
+    def is_authenticated(self):
+        """Always return True for active GlobalClient instances"""
+        return True
+    
+    @property
+    def is_anonymous(self):
+        """GlobalClients are never anonymous"""
+        return False
+    
+    @property
+    def role(self):
+        """Return 'client' role for compatibility with existing code"""
+        return 'client'
+    
+    @property
+    def username(self):
+        """Return email as username for compatibility"""
+        return self.email
+    
+    @property
+    def is_staff(self):
+        """GlobalClients are not staff"""
+        return False
+    
+    @property
+    def is_superuser(self):
+        """GlobalClients are not superusers"""
+        return False
+    
+    def get_username(self):
+        """Return email as username"""
+        return self.email
+    
     def __str__(self):
         return f"{self.name} ({self.email})"
 
