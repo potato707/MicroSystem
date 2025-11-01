@@ -620,12 +620,21 @@ class AllClientsFromAllTenantsView(APIView):
                 
                 # Get User model and query from tenant database
                 with connections[db_alias].cursor() as cursor:
-                    # Query to get all clients from this tenant's database
+                    # Query to get all registered clients from this tenant's database
                     cursor.execute("""
-                        SELECT id, email, first_name, last_name, phone, is_active, 
-                               date_joined, last_login
-                        FROM auth_user
+                        SELECT id, email, first_name, last_name, '' as phone, is_active, 
+                               date_joined, last_login, 'registered' as client_type
+                        FROM hr_management_user
                         WHERE role = 'client'
+                        
+                        UNION ALL
+                        
+                        SELECT id, client_email as email, client_name as first_name, 
+                               '' as last_name, client_phone as phone, 1 as is_active,
+                               created_at as date_joined, NULL as last_login, 'complaint' as client_type
+                        FROM hr_management_clientcomplaint
+                        WHERE client_user_id IS NULL OR client_user_id = ''
+                        
                         ORDER BY date_joined DESC
                     """)
                     
@@ -701,10 +710,19 @@ class AllClientsDashboardView(View):
                 with connections[db_alias].cursor() as cursor:
                     # Query to get all clients from this tenant's database
                     cursor.execute("""
-                        SELECT id, email, first_name, last_name, phone, is_active, 
-                               date_joined, last_login
-                        FROM auth_user
+                        SELECT id, email, first_name, last_name, '' as phone, is_active, 
+                               date_joined, last_login, 'registered' as client_type
+                        FROM hr_management_user
                         WHERE role = 'client'
+                        
+                        UNION ALL
+                        
+                        SELECT id, client_email as email, client_name as first_name, 
+                               '' as last_name, client_phone as phone, 1 as is_active,
+                               created_at as date_joined, NULL as last_login, 'complaint' as client_type
+                        FROM hr_management_clientcomplaint
+                        WHERE client_user_id IS NULL OR client_user_id = ''
+                        
                         ORDER BY date_joined DESC
                     """)
                     
