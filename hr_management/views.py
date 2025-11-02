@@ -1108,17 +1108,17 @@ class ReimbursementRequestApproveRejectView(generics.UpdateAPIView):
             raise PermissionDenied("Admins only can approve/deny requests.")
 
         reimbursement = self.get_object()
-        status = request.data.get("status")
+        review_status = request.data.get("status")
         comment = request.data.get("admin_comment", "")
 
-        if status not in ["approved", "rejected"]:
+        if review_status not in ["approved", "rejected"]:
             raise ValidationError("Status must be 'approved' or 'rejected'.")
 
-        reimbursement.status = status
+        reimbursement.status = review_status
         reimbursement.admin_comment = comment
         reimbursement.save()
 
-        if status == "approved":
+        if review_status == "approved":
             # Update reimbursement with approval details
             reimbursement.approved_at = timezone.now()
             reimbursement.approved_by = request.user
