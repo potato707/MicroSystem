@@ -1248,7 +1248,12 @@ class TaskViewSet(viewsets.ModelViewSet):
             team_id = self.request.query_params.get('team_id')
             
             if employee_id:
-                queryset = queryset.filter(employee_id=employee_id)
+                # Filter by employee_id - include tasks assigned to employee
+                # OR tasks created by this user but not assigned to anyone
+                queryset = queryset.filter(
+                    Q(employee_id=employee_id) |
+                    Q(employee__isnull=True, created_by_id=employee_id)
+                )
             elif team_id:
                 queryset = queryset.filter(team_id=team_id)
         
@@ -1265,27 +1270,28 @@ class TaskViewSet(viewsets.ModelViewSet):
                 task = serializer.save(employee=employee, created_by=user)
             except Employee.DoesNotExist:
                 raise ValidationError("Employee profile not found. Please contact administrator.")
-        elif user.role == 'admin':
+        elif user.role in ['admin', 'manager']:
             # Check if employee was specified in the request
             employee_id = self.request.data.get('employee')
             team_id = self.request.data.get('team')
             
             employee = None
             if employee_id:
-                # Admin is creating task for a specific employee
+                # Admin/Manager is creating task for a specific employee
                 try:
                     employee = Employee.objects.get(id=employee_id)
                 except Employee.DoesNotExist:
                     raise ValidationError("Employee not found")
-            elif not team_id:
-                # No employee or team specified - check if admin has an employee profile
+            else:
+                # No employee specified - try to assign to current user's employee profile
                 try:
                     employee = user.employee
-                except (Employee.DoesNotExist, AttributeError):
-                    # Admin doesn't have employee profile - create task without employee assignment
-                    # This creates an admin-level task that isn't assigned to any specific employee
+                    print(f"✅ Auto-assigning task to user's employee profile: {employee.id}")
+                except (Employee.DoesNotExist, AttributeError) as e:
+                    print(f"⚠️ User {user.username} (role={user.role}) has no employee profile: {e}")
+                    # If team is specified, keep employee as None (team task)
+                    # If no team, keep employee as None (unassigned admin task)
                     employee = None
-            # else: team_id is specified but no employee - leave employee as None (team task)
             
             task = serializer.save(
                 employee=employee, 
