@@ -1644,7 +1644,7 @@ class QuickTaskActionsView(APIView):
                 # If resuming from pause, clear pause time and add to total
                 if task.paused_at:
                     pause_duration = (system_now() - task.paused_at).total_seconds() / 60
-                    task.total_pause_time += int(pause_duration)
+                    task.total_pause_time += round(pause_duration, 2)
                     task.paused_at = None
             elif action == 'complete':
                 task.status = 'done'
@@ -1652,7 +1652,7 @@ class QuickTaskActionsView(APIView):
                 # If completing from pause, add pause time to total
                 if task.paused_at:
                     pause_duration = (system_now() - task.paused_at).total_seconds() / 60
-                    task.total_pause_time += int(pause_duration)
+                    task.total_pause_time += round(pause_duration, 2)
                     task.paused_at = None
             elif action == 'pause':
                 task.paused_at = system_now()
@@ -1660,8 +1660,15 @@ class QuickTaskActionsView(APIView):
             elif action == 'resume':
                 if task.paused_at:
                     pause_duration = (system_now() - task.paused_at).total_seconds() / 60
-                    task.total_pause_time += int(pause_duration)
+                    print(f"[DEBUG RESUME] Task {task.id}:")
+                    print(f"  - Paused at: {task.paused_at}")
+                    print(f"  - Pause duration: {pause_duration:.2f} minutes")
+                    print(f"  - Old total_pause_time: {task.total_pause_time}")
+                    # استخدم round() بدلاً من int() لتقريب الدقائق
+                    task.total_pause_time += round(pause_duration, 2)
+                    print(f"  - New total_pause_time: {task.total_pause_time}")
                     task.paused_at = None
+                    print(f"  - paused_at cleared: {task.paused_at}")
             elif action == 'reset_timer':
                 task.started_at = None
                 task.paused_at = None
@@ -1832,7 +1839,7 @@ class SubtaskQuickActionsView(APIView):
                 if subtask.paused_at:
                     # Add current pause duration to total
                     pause_duration = (system_now() - subtask.paused_at).total_seconds() / 60
-                    subtask.total_pause_time += pause_duration
+                    subtask.total_pause_time += round(pause_duration, 2)
                     subtask.paused_at = None
             elif action == 'complete':
                 subtask.status = 'done'
@@ -1840,7 +1847,7 @@ class SubtaskQuickActionsView(APIView):
                 if subtask.paused_at:
                     # Add final pause duration to total
                     pause_duration = (system_now() - subtask.paused_at).total_seconds() / 60
-                    subtask.total_pause_time += pause_duration
+                    subtask.total_pause_time += round(pause_duration, 2)
                     subtask.paused_at = None
             elif action == 'reset_timer':
                 subtask.started_at = None
