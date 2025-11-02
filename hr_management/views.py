@@ -1124,6 +1124,24 @@ class ReimbursementRequestApproveRejectView(generics.UpdateAPIView):
             reimbursement.approved_by = request.user
             reimbursement.save()
             
+            # Deduct from central wallet
+            central_wallet = get_central_wallet()
+            if central_wallet.balance < reimbursement.amount:
+                return Response({
+                    'error': f'Insufficient balance in central wallet. Available: {central_wallet.balance}, Required: {reimbursement.amount}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            central_wallet.balance -= reimbursement.amount
+            central_wallet.save()
+            
+            # Record the central wallet transaction
+            WalletTransaction.objects.create(
+                wallet=central_wallet,
+                transaction_type='withdrawal',
+                amount=reimbursement.amount,
+                description=f"Reimbursement approved for {reimbursement.employee.name}: {reimbursement.description}"
+            )
+            
             # Add money to employee's reimbursement wallet
             wallet_system = get_or_create_wallet_system(reimbursement.employee)
             
