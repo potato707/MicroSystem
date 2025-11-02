@@ -16,9 +16,11 @@ from django.utils.encoding import force_bytes, force_str
 from django.utils import timezone
 from .models import User, ClientComplaint, EmailVerificationCode, GlobalClient
 from .serializers import UserSerializer
+from .client_helpers import verify_client_role, get_client_email
 import secrets
 import random
 import string
+from datetime import timedelta
 from datetime import datetime, timedelta
 
 
@@ -391,8 +393,9 @@ class PasswordResetRequestView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            user = User.objects.get(email=email, role='client')
-        except User.DoesNotExist:
+            # البحث في GlobalClient من main database
+            client = GlobalClient.objects.using('default').get(email=email)
+        except GlobalClient.DoesNotExist:
             # Return success even if user doesn't exist for security reasons
             return Response({
                 'message': 'If an account exists with this email, a password reset link has been sent.'
@@ -400,8 +403,8 @@ class PasswordResetRequestView(APIView):
         
         # Generate password reset token
         token_generator = PasswordResetTokenGenerator()
-        token = token_generator.make_token(user)
-        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        token = token_generator.make_token(client)
+        uid = urlsafe_base64_encode(force_bytes(client.pk))
         
         # Build reset URL
         frontend_url = getattr(settings, 'CLIENT_FRONTEND_URL', 'http://localhost:3000')
@@ -411,7 +414,7 @@ class PasswordResetRequestView(APIView):
         try:
             subject = "Password Reset Request - Complaint Management System"
             message = f"""
-مرحباً {user.name},
+مرحباً {client.name},
 
 لقد طلبت إعادة تعيين كلمة المرور الخاصة بك.
 
@@ -422,7 +425,7 @@ class PasswordResetRequestView(APIView):
 
 سينتهي هذا الرابط خلال 24 ساعة.
 
-Hello {user.name},
+Hello {client.name},
 
 You have requested to reset your password.
 
@@ -482,23 +485,23 @@ class PasswordResetConfirmView(APIView):
         
         # Decode user ID
         try:
-            user_id = force_str(urlsafe_base64_decode(uid))
-            user = User.objects.get(pk=user_id, role='client')
-        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            client_id = force_str(urlsafe_base64_decode(uid))
+            client = GlobalClient.objects.using('default').get(pk=client_id)
+        except (TypeError, ValueError, OverflowError, GlobalClient.DoesNotExist):
             return Response({
                 'error': 'Invalid reset link'
             }, status=status.HTTP_400_BAD_REQUEST)
         
         # Verify token
         token_generator = PasswordResetTokenGenerator()
-        if not token_generator.check_token(user, token):
+        if not token_generator.check_token(client, token):
             return Response({
                 'error': 'Invalid or expired reset link'
             }, status=status.HTTP_400_BAD_REQUEST)
         
         # Set new password
-        user.set_password(new_password)
-        user.save()
+        client.set_password(new_password)
+        client.save(using='default')
         
         return Response({
             'message': 'Password has been reset successfully. You can now login with your new password.'
@@ -513,10 +516,19 @@ class SendEmailVerificationCodeView(APIView):
     
     def post(self, request):
         # Verify user is a client
-        if request.user.role != 'client':
+        if not verify_client_role(request.user):
             return Response({
                 'error': 'This endpoint is for clients only'
             }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Get GlobalClient by email
+        client_email = get_client_email(request.user)
+        try:
+            client = GlobalClient.objects.using('default').get(email=client_email)
+        except GlobalClient.DoesNotExist:
+            return Response({
+                'error': 'Client account not found'
+            }, status=status.HTTP_404_NOT_FOUND)
         
         new_email = request.data.get('new_email')
         
@@ -526,13 +538,13 @@ class SendEmailVerificationCodeView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         # Check if new email is different from current
-        if new_email == request.user.email:
+        if new_email == client.email:
             return Response({
                 'error': 'New email must be different from current email'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Check if email is already in use by another user
-        if User.objects.filter(email=new_email).exclude(id=request.user.id).exists():
+        # Check if email is already in use by another GlobalClient
+        if GlobalClient.objects.using('default').filter(email=new_email).exclude(id=client.id).exists():
             return Response({
                 'error': 'This email is already in use'
             }, status=status.HTTP_400_BAD_REQUEST)
@@ -556,7 +568,7 @@ class SendEmailVerificationCodeView(APIView):
         try:
             subject = "تأكيد تغيير البريد الإلكتروني - Verification Code"
             message = f"""
-مرحباً {request.user.name},
+مرحباً {client.name},
 
 لقد طلبت تغيير بريدك الإلكتروني إلى: {new_email}
 
@@ -568,7 +580,7 @@ class SendEmailVerificationCodeView(APIView):
 
 ---
 
-Hello {request.user.name},
+Hello {client.name},
 
 You have requested to change your email to: {new_email}
 
@@ -603,10 +615,19 @@ class VerifyEmailCodeAndUpdateView(APIView):
     
     def post(self, request):
         # Verify user is a client
-        if request.user.role != 'client':
+        if not verify_client_role(request.user):
             return Response({
                 'error': 'This endpoint is for clients only'
             }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Get GlobalClient by email
+        client_email = get_client_email(request.user)
+        try:
+            client = GlobalClient.objects.using('default').get(email=client_email)
+        except GlobalClient.DoesNotExist:
+            return Response({
+                'error': 'Client account not found'
+            }, status=status.HTTP_404_NOT_FOUND)
         
         verification_code = request.data.get('verification_code')
         
@@ -633,25 +654,24 @@ class VerifyEmailCodeAndUpdateView(APIView):
                 'error': 'Verification code has expired'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Check if email is still available
-        if User.objects.filter(email=code_record.new_email).exclude(id=request.user.id).exists():
+        # Check if email is still available in GlobalClient
+        if GlobalClient.objects.using('default').filter(email=code_record.new_email).exclude(id=client.id).exists():
             return Response({
                 'error': 'This email is now in use by another user'
             }, status=status.HTTP_400_BAD_REQUEST)
         
-        # Update email
-        request.user.email = code_record.new_email
-        request.user.save()
+        # Update email in GlobalClient (main database)
+        client.email = code_record.new_email
+        client.save(using='default')
         
         # Mark code as verified
         code_record.is_verified = True
         code_record.save()
         
-        # Return updated user data
-        user_serializer = UserSerializer(request.user)
+        # Return success message
         return Response({
             'message': 'Email updated successfully',
-            'user': user_serializer.data
+            'new_email': client.email
         }, status=status.HTTP_200_OK)
 
 
