@@ -118,6 +118,15 @@ class GlobalClient(models.Model):
         """Return email as username"""
         return self.email
     
+    @classmethod
+    def get_email_field_name(cls):
+        """Return the name of the email field for Django's PasswordResetTokenGenerator"""
+        return 'email'
+    
+    def natural_key(self):
+        """Return natural key for this model"""
+        return (self.email,)
+    
     def __str__(self):
         return f"{self.name} ({self.email})"
 
