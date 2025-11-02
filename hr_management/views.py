@@ -1114,6 +1114,15 @@ class ReimbursementRequestApproveRejectView(generics.UpdateAPIView):
         if review_status not in ["approved", "rejected"]:
             raise ValidationError("Status must be 'approved' or 'rejected'.")
 
+        # If approving, check central wallet balance BEFORE making any changes
+        if review_status == "approved":
+            central_wallet = get_central_wallet()
+            if central_wallet.balance < reimbursement.amount:
+                return Response({
+                    'error': f'Insufficient balance in central wallet. Available: {central_wallet.balance}, Required: {reimbursement.amount}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Now safe to update status after validation
         reimbursement.status = review_status
         reimbursement.admin_comment = comment
         reimbursement.save()
@@ -1124,13 +1133,8 @@ class ReimbursementRequestApproveRejectView(generics.UpdateAPIView):
             reimbursement.approved_by = request.user
             reimbursement.save()
             
-            # Deduct from central wallet
+            # Deduct from central wallet (already validated above)
             central_wallet = get_central_wallet()
-            if central_wallet.balance < reimbursement.amount:
-                return Response({
-                    'error': f'Insufficient balance in central wallet. Available: {central_wallet.balance}, Required: {reimbursement.amount}'
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
             central_wallet.balance -= reimbursement.amount
             central_wallet.save()
             
