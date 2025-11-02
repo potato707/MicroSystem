@@ -774,6 +774,50 @@ class TaskComment(models.Model):
         return f"Comment by {self.author.name} on {self.task.title}"
 
 
+class ShareableTaskLink(models.Model):
+    """Shareable links for tasks - allows viewing task details without login"""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name='shared_links')
+    token = models.CharField(max_length=64, unique=True, db_index=True, verbose_name='Share Token')
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='created_share_links')
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(null=True, blank=True, verbose_name='Expiration Date')
+    is_active = models.BooleanField(default=True, verbose_name='Active')
+    view_count = models.IntegerField(default=0, verbose_name='View Count')
+    last_viewed_at = models.DateTimeField(null=True, blank=True, verbose_name='Last Viewed')
+    allow_comments = models.BooleanField(default=False, verbose_name='Allow Comments')
+    
+    class Meta:
+        verbose_name = 'Shareable Task Link'
+        verbose_name_plural = 'Shareable Task Links'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"Share link for {self.task.title} (Token: {self.token[:8]}...)"
+    
+    def is_expired(self):
+        """Check if link has expired"""
+        if not self.expires_at:
+            return False
+        return timezone.now() > self.expires_at
+    
+    def is_valid(self):
+        """Check if link is valid and active"""
+        return self.is_active and not self.is_expired()
+    
+    def increment_view_count(self):
+        """Increment view count and update last viewed time"""
+        self.view_count += 1
+        self.last_viewed_at = timezone.now()
+        self.save(update_fields=['view_count', 'last_viewed_at'])
+    
+    @staticmethod
+    def generate_token():
+        """Generate a secure random token"""
+        import secrets
+        return secrets.token_urlsafe(48)
+
+
 class Team(models.Model):
     """Teams for organizing employees and task assignments"""
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

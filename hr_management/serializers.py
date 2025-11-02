@@ -6,6 +6,7 @@ from .models import (
     LeaveRequest, Complaint, ComplaintReply, ComplaintAttachment, EmployeeDocument, 
     Wallet, WalletTransaction, ReimbursementRequest, ReimbursementAttachment, 
     Task, Subtask, TaskReport, TaskComment, Team, TeamMembership, TeamTask, OfficeLocation,
+    ShareableTaskLink,  # Added for task sharing feature
     # Multi-wallet models
     EmployeeWalletSystem, MainWallet, ReimbursementWallet, AdvanceWallet, 
     MultiWalletTransaction, WalletTransfer,
@@ -509,6 +510,63 @@ class TaskSerializer(serializers.ModelSerializer):
             'created_at', 'updated_at', 'notes', 'comments', 'subtasks', 'is_overdue', 'time_spent'
         ]
         read_only_fields = ['created_by', 'created_at', 'updated_at', 'time_spent', 'is_overdue', 'is_paused', 'paused_at', 'total_pause_time', 'employee_name', 'team_name']
+
+
+class ShareableTaskLinkSerializer(serializers.ModelSerializer):
+    """Serializer for shareable task links"""
+    task_title = serializers.CharField(source='task.title', read_only=True)
+    created_by_name = serializers.CharField(source='created_by.name', read_only=True)
+    share_url = serializers.SerializerMethodField()
+    is_expired = serializers.SerializerMethodField()
+    is_valid = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ShareableTaskLink
+        fields = [
+            'id', 'task', 'task_title', 'token', 'created_by', 'created_by_name',
+            'created_at', 'expires_at', 'is_active', 'view_count', 'last_viewed_at',
+            'allow_comments', 'share_url', 'is_expired', 'is_valid'
+        ]
+        read_only_fields = ['token', 'created_by', 'created_at', 'view_count', 'last_viewed_at']
+    
+    def get_share_url(self, obj):
+        """Get the full shareable URL"""
+        request = self.context.get('request')
+        if request:
+            # Get the frontend URL from settings or use request origin
+            from django.conf import settings
+            frontend_url = getattr(settings, 'FRONTEND_URL', request.build_absolute_uri('/').rstrip('/'))
+            return f"{frontend_url}/shared/task/{obj.token}"
+        return f"/shared/task/{obj.token}"
+    
+    def get_is_expired(self, obj):
+        return obj.is_expired()
+    
+    def get_is_valid(self, obj):
+        return obj.is_valid()
+    
+    def create(self, validated_data):
+        # Generate unique token
+        validated_data['token'] = ShareableTaskLink.generate_token()
+        return super().create(validated_data)
+
+
+class SharedTaskDetailSerializer(serializers.ModelSerializer):
+    """Serializer for viewing shared task details (public access)"""
+    employee_name = serializers.CharField(source='employee.name', read_only=True, allow_null=True)
+    team_name = serializers.CharField(source='team.name', read_only=True, allow_null=True)
+    subtasks = SubtaskSerializer(many=True, read_only=True)
+    created_by_name = serializers.CharField(source='created_by.name', read_only=True)
+    
+    class Meta:
+        model = Task
+        fields = [
+            'id', 'title', 'description', 'status', 'priority', 'date', 'start_date', 'end_date',
+            'employee_name', 'team_name', 'created_by_name',
+            'estimated_minutes', 'actual_minutes', 'started_at', 'completed_at',
+            'created_at', 'updated_at', 'notes', 'subtasks'
+        ]
+        # Exclude sensitive fields like employee ID, created_by ID, etc.
 
 
 class TaskUpdateSerializer(serializers.ModelSerializer):

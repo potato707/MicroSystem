@@ -14,6 +14,8 @@ from .views import (
     ManagerDashboardView, TaskReportViewSet, TaskCommentViewSet, QuickTaskActionsView, SubtaskViewSet, AdminTaskManagementView, 
     SubtaskQuickActionsView, AssignableEmployeesView, TeamMembersView, TeamViewSet, TeamMembershipViewSet, TeamTaskViewSet, AssignTaskToTeamView, 
     TeamDashboardView, OfficeLocationViewSet, SetOfficeLocationView, CurrentOfficeLocationView,
+    # Task Sharing Views
+    CreateShareableTaskLinkView, ViewSharedTaskView, ListTaskShareLinksView, DeactivateShareLinkView,
     # Multi-wallet views
     EmployeeWalletSystemView, WalletTransferCreateView,
     # Client Complaint System views
@@ -97,6 +99,9 @@ urlpatterns = [
     path("tasks/manage/", AdminTaskManagementView.as_view(), name="admin-task-management"),
     path("tasks/<uuid:task_id>/update/", TaskUpdateView.as_view(), name="task-update"),
     path("tasks/<uuid:task_id>/actions/", QuickTaskActionsView.as_view(), name="task-actions"),
+    path("tasks/<uuid:task_id>/share/", CreateShareableTaskLinkView.as_view(), name="task-share"),  # New: Create share link
+    path("tasks/<uuid:task_id>/share-links/", ListTaskShareLinksView.as_view(), name="task-share-links"),  # New: List share links
+    path("share-links/<uuid:link_id>/", DeactivateShareLinkView.as_view(), name="deactivate-share-link"),  # New: Deactivate link
     path("subtasks/<uuid:subtask_id>/actions/", SubtaskQuickActionsView.as_view(), name="subtask-actions"),
     path("tasks/<uuid:task_id>/assignable-employees/", AssignableEmployeesView.as_view(), name="task-assignable-employees"),
     path("manager/dashboard/", ManagerDashboardView.as_view(), name="manager-dashboard"),
@@ -169,6 +174,7 @@ urlpatterns = [
     # Client Complaint System - Public endpoints (no authentication required)
     path("public/complaint-categories/", PublicComplaintCategoryListView.as_view(), name="public-complaint-categories"),
     path("public/client-complaints/", PublicClientComplaintCreateView.as_view(), name="public-client-complaint-create"),
+    path("public/shared-task/<str:token>/", ViewSharedTaskView.as_view(), name="view-shared-task"),  # New: View shared task (public)
     path("public/check-phone/", CheckPhoneExistsView.as_view(), name="check-phone-exists"),
     path("public/check-email/", CheckEmailExistsView.as_view(), name="check-email-exists"),
     path("public/password-reset/request/", PasswordResetRequestView.as_view(), name="password-reset-request"),

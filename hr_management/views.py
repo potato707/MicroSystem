@@ -9,7 +9,7 @@ from decimal import Decimal
 from rest_framework import viewsets, generics, permissions, status
 from rest_framework.views import APIView
 from rest_framework.decorators import action
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.response import Response
 from rest_framework import status as rest_status  # Explicit import to avoid conflicts
@@ -18,7 +18,7 @@ from .models import (
     Employee, EmployeeDocument, EmployeeNote, EmployeeAttendance, WorkShift, 
     LeaveRequest, Complaint, ComplaintReply, ComplaintAttachment, Wallet, WalletTransaction, 
     ReimbursementRequest, Task, Subtask, TaskReport, TaskComment, Team, TeamMembership, 
-    TeamTask, OfficeLocation,
+    TeamTask, OfficeLocation, ShareableTaskLink,  # Added ShareableTaskLink
     # Multi-wallet models
     EmployeeWalletSystem, MainWallet, ReimbursementWallet, AdvanceWallet, 
     MultiWalletTransaction, WalletTransfer,
@@ -45,6 +45,7 @@ from .serializers import (
     TaskCreateSerializer, TaskUpdateSerializer, SubtaskSerializer, TaskReportSerializer, 
     TaskCommentSerializer, ManagerTaskDashboardSerializer, TeamSerializer, 
     TeamCreateSerializer, TeamMembershipSerializer, TeamTaskSerializer, OfficeLocationSerializer,
+    ShareableTaskLinkSerializer, SharedTaskDetailSerializer,  # Added task sharing serializers
     # Multi-wallet serializers
     EmployeeWalletSystemSerializer, MultiWalletTransactionSerializer, WalletTransferSerializer,
     # Client Complaint System serializers
@@ -4705,3 +4706,146 @@ class ShiftAttendanceViewSet(viewsets.ModelViewSet):
             'total_hours_worked': float(total_hours),
             'attendance_rate': round(attendance_rate, 2)
         })
+
+
+# ==================== Task Sharing Views ====================
+
+class CreateShareableTaskLinkView(APIView):
+    """
+    Create a shareable link for a task
+    POST /hr/tasks/{task_id}/share/
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, task_id):
+        try:
+            task = Task.objects.get(id=task_id)
+        except Task.DoesNotExist:
+            return Response({
+                'error': 'Task not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Permission check: only task creator, assignee, or admin can share
+        user = request.user
+        if user.role not in ['admin', 'manager']:
+            # Check if user is the task creator or assignee
+            if task.created_by != user and (not hasattr(user, 'employee') or task.employee != user.employee):
+                return Response({
+                    'error': 'You do not have permission to share this task'
+                }, status=status.HTTP_403_FORBIDDEN)
+        
+        # Check if an active link already exists for this task
+        existing_link = ShareableTaskLink.objects.filter(
+            task=task,
+            is_active=True,
+            created_by=user
+        ).first()
+        
+        if existing_link and existing_link.is_valid():
+            # Return existing link
+            serializer = ShareableTaskLinkSerializer(existing_link, context={'request': request})
+            return Response({
+                'message': 'Using existing shareable link',
+                'link': serializer.data
+            }, status=status.HTTP_200_OK)
+        
+        # Create new shareable link
+        expires_at = request.data.get('expires_at')
+        allow_comments = request.data.get('allow_comments', False)
+        
+        serializer = ShareableTaskLinkSerializer(data={
+            'task': task.id,
+            'expires_at': expires_at,
+            'allow_comments': allow_comments
+        }, context={'request': request})
+        
+        if serializer.is_valid():
+            shareable_link = serializer.save(created_by=user)
+            return Response({
+                'message': 'Shareable link created successfully',
+                'link': serializer.data
+            }, status=status.HTTP_201_CREATED)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ViewSharedTaskView(APIView):
+    """
+    View a shared task using its token (public access - no authentication required)
+    GET /hr/public/shared-task/{token}/
+    """
+    permission_classes = [AllowAny]
+    
+    def get(self, request, token):
+        try:
+            shareable_link = ShareableTaskLink.objects.select_related('task').get(token=token)
+        except ShareableTaskLink.DoesNotExist:
+            return Response({
+                'error': 'Invalid or expired share link'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Check if link is valid
+        if not shareable_link.is_valid():
+            error_msg = 'This share link has expired' if shareable_link.is_expired() else 'This share link is no longer active'
+            return Response({
+                'error': error_msg,
+                'is_expired': shareable_link.is_expired(),
+                'is_active': shareable_link.is_active
+            }, status=status.HTTP_410_GONE)
+        
+        # Increment view count
+        shareable_link.increment_view_count()
+        
+        # Return task details
+        task = shareable_link.task
+        task_serializer = SharedTaskDetailSerializer(task, context={'request': request})
+        
+        return Response({
+            'task': task_serializer.data,
+            'shared_by': shareable_link.created_by.name,
+            'shared_at': shareable_link.created_at,
+            'view_count': shareable_link.view_count,
+            'allow_comments': shareable_link.allow_comments
+        }, status=status.HTTP_200_OK)
+
+
+class ListTaskShareLinksView(generics.ListAPIView):
+    """
+    List all share links for a specific task
+    GET /hr/tasks/{task_id}/share-links/
+    """
+    serializer_class = ShareableTaskLinkSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        task_id = self.kwargs.get('task_id')
+        return ShareableTaskLink.objects.filter(task_id=task_id).order_by('-created_at')
+
+
+class DeactivateShareLinkView(APIView):
+    """
+    Deactivate a share link
+    DELETE /hr/share-links/{link_id}/
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def delete(self, request, link_id):
+        try:
+            share_link = ShareableTaskLink.objects.get(id=link_id)
+        except ShareableTaskLink.DoesNotExist:
+            return Response({
+                'error': 'Share link not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        
+        # Permission check: only creator or admin can deactivate
+        if request.user.role not in ['admin', 'manager'] and share_link.created_by != request.user:
+            return Response({
+                'error': 'You do not have permission to deactivate this link'
+            }, status=status.HTTP_403_FORBIDDEN)
+        
+        share_link.is_active = False
+        share_link.save()
+        
+        return Response({
+            'message': 'Share link deactivated successfully'
+        }, status=status.HTTP_200_OK)
