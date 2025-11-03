@@ -308,23 +308,29 @@ class EmployeeAttendanceListCreateView(generics.ListCreateAPIView):
     def get(self, request):
         date_query = request.query_params.get("date")
         user_id_query = request.query_params.get("user_id")
+        
+        # If not admin, filter by current user's employee
         if getattr(self.request.user, "role", None) != "admin":
-            attendance = EmployeeAttendance.objects.filter(employee__id=request.user.employee.id, date=date_query)
+            if hasattr(request.user, 'employee'):
+                attendance = EmployeeAttendance.objects.filter(employee__id=request.user.employee.id, date=date_query)
+                serializer = EmployeeAttendanceSerializer(attendance, many=True)
+                return Response(serializer.data)
+            else:
+                return Response({"error": "User has no employee record"}, status=400)
+        
+        # Admin can query by date and/or user_id
         if date_query or user_id_query:
-            if user_id_query:
-                if not date_query:
-                    attendance = EmployeeAttendance.objects.filter(employee__id=user_id_query)
-                else:
-                    attendance = EmployeeAttendance.objects.filter(date=date_query, employee__id=user_id_query)
-                serializer = EmployeeAttendanceSerializer(attendance, many=True)
-                return Response(serializer.data)
+            attendance = EmployeeAttendance.objects.all()
+            
             if date_query:
-                if not user_id_query:
-                    attendance = EmployeeAttendance.objects.filter(date=date_query)
-                else:
-                    attendance = EmployeeAttendance.objects.filter(employee__id=user_id_query, date=date_query)
-                serializer = EmployeeAttendanceSerializer(attendance, many=True)
-                return Response(serializer.data)
+                attendance = attendance.filter(date=date_query)
+            
+            if user_id_query:
+                # Search by employee's user_id (user.id) not employee.id
+                attendance = attendance.filter(employee__user__id=user_id_query)
+            
+            serializer = EmployeeAttendanceSerializer(attendance, many=True)
+            return Response(serializer.data)
         else:
             return Response({"error": "Date or user_id parameter is required"}, status=400)
 # Retrieve, update, delete attendance record
@@ -828,17 +834,18 @@ class LeaveRequestUpdateStatusView(generics.UpdateAPIView):
         serializer = self.get_serializer(leave_request, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         
+        # Get status and is_paid from validated data
+        status_param = serializer.validated_data.get("status")
+        is_paid = serializer.validated_data.get("is_paid", True)  # Default to paid
+        
         # Set review metadata
         leave_request.reviewed_by = request.user
         leave_request.reviewed_at = system_now()
-        
-        # Save the changes
-        self.perform_update(serializer)
+        leave_request.status = status_param
+        leave_request.is_paid = is_paid
+        leave_request.save()
 
-        status_param = serializer.validated_data.get("status", leave_request.status)
-        is_paid = serializer.validated_data.get("is_paid", leave_request.is_paid)
-
-        # إذا تم الموافقة على الإجازة
+        # إذا تم الموافقة على الإجازة، أنشئ سجلات الحضور
         if status_param == "approved":
             start_date = leave_request.start_date
             end_date = leave_request.end_date
@@ -851,18 +858,103 @@ class LeaveRequestUpdateStatusView(generics.UpdateAPIView):
                     date=current_date,
                     defaults={
                         "status": "on_leave",
-                        "paid": is_paid if is_paid is not None else True  # Default to paid if not specified
+                        "paid": is_paid
                     }
                 )
                 if not created:
+                    # Update existing attendance record
                     attendance.status = "on_leave"
-                    attendance.paid = is_paid if is_paid is not None else True
+                    attendance.paid = is_paid
                     attendance.check_in = None
                     attendance.check_out = None
                     attendance.save()
+                
                 current_date += datetime.timedelta(days=1)
 
         return Response(LeaveRequestSerializer(leave_request).data)
+
+
+class LeaveRequestUndoApprovalView(APIView):
+    """
+    Undo an approved or rejected leave request - revert to pending status
+    and remove all attendance records created for the leave period
+    """
+    permission_classes = [IsEmployer]
+
+    def post(self, request, pk):
+        try:
+            leave_request = LeaveRequest.objects.get(pk=pk)
+        except LeaveRequest.DoesNotExist:
+            return Response({
+                'error': 'Leave request not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # Check if leave request can be undone
+        if leave_request.status not in ["approved", "rejected"]:
+            return Response({
+                'error': f'Can only undo approved or rejected leave requests. Current status: {leave_request.status}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        old_status = leave_request.status
+
+        # If it was approved, we need to remove the attendance records
+        if old_status == "approved":
+            try:
+                start_date = leave_request.start_date
+                end_date = leave_request.end_date
+                employee = leave_request.employee
+
+                # Delete or reset attendance records for the leave period
+                current_date = start_date
+                deleted_count = 0
+                updated_count = 0
+                
+                while current_date <= end_date:
+                    try:
+                        attendance = EmployeeAttendance.objects.get(
+                            employee=employee,
+                            date=current_date
+                        )
+                        
+                        # If the attendance was created for this leave (status is on_leave), delete it
+                        # Otherwise, just reset it to absent or another appropriate status
+                        if attendance.status == "on_leave":
+                            attendance.delete()
+                            deleted_count += 1
+                        else:
+                            # If there were other attendance records, we can reset them
+                            attendance.status = "absent"
+                            attendance.paid = False
+                            attendance.save()
+                            updated_count += 1
+                            
+                    except EmployeeAttendance.DoesNotExist:
+                        # No attendance record for this date, continue
+                        pass
+                        
+                    current_date += datetime.timedelta(days=1)
+
+            except Exception as e:
+                return Response({
+                    'error': f'Failed to remove attendance records: {str(e)}'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Reset leave request to pending status
+        leave_request.status = "pending"
+        leave_request.admin_comment = f"[UNDONE from {old_status}] " + (leave_request.admin_comment or "")
+        leave_request.reviewed_by = None
+        leave_request.reviewed_at = None
+        leave_request.save()
+
+        from .serializers import LeaveRequestSerializer
+        serializer = LeaveRequestSerializer(leave_request)
+        
+        return Response({
+            'message': f'Leave request undone successfully. Reverted from {old_status} to pending.',
+            'leave_request': serializer.data,
+            'attendance_deleted': deleted_count if old_status == "approved" else 0,
+            'attendance_updated': updated_count if old_status == "approved" else 0
+        }, status=status.HTTP_200_OK)
 
 
 # إنشاء شكوى
@@ -1095,7 +1187,7 @@ class ReimbursementRequestListView(generics.ListAPIView):
     def get_queryset(self):
         user = self.request.user
         if user.role == "admin":
-            return ReimbursementRequest.objects.filter(status="pending").order_by("-created_at")
+            return ReimbursementRequest.objects.all().order_by("-created_at")
         else:
             return ReimbursementRequest.objects.filter(employee=user.employee)
 
@@ -1205,6 +1297,83 @@ class ReimbursementPaymentView(generics.UpdateAPIView):
 
         serializer = self.get_serializer(reimbursement)
         return Response(serializer.data)
+
+
+class ReimbursementUndoApprovalView(APIView):
+    """
+    Undo an approved or rejected reimbursement - revert to pending status
+    and reverse all wallet transactions if it was approved
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        if request.user.role != "admin":
+            raise PermissionDenied("Only admins can undo reimbursement approvals.")
+
+        try:
+            reimbursement = ReimbursementRequest.objects.get(pk=pk)
+        except ReimbursementRequest.DoesNotExist:
+            return Response({
+                'error': 'Reimbursement request not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # Check if reimbursement can be undone
+        if reimbursement.status not in ["approved", "rejected"]:
+            return Response({
+                'error': f'Can only undo approved or rejected reimbursements. Current status: {reimbursement.status}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        old_status = reimbursement.status
+
+        # If it was approved, we need to reverse the wallet transactions
+        if old_status == "approved":
+            try:
+                # Return money to central wallet
+                central_wallet = get_central_wallet()
+                central_wallet.balance += reimbursement.amount
+                central_wallet.save()
+                
+                # Record the reversal in central wallet
+                WalletTransaction.objects.create(
+                    wallet=central_wallet,
+                    transaction_type='deposit',
+                    amount=reimbursement.amount,
+                    description=f"Reimbursement approval UNDONE for {reimbursement.employee.name}: {reimbursement.description}"
+                )
+                
+                # Deduct from employee's reimbursement wallet
+                wallet_system = get_or_create_wallet_system(reimbursement.employee)
+                
+                # Create reversal transaction in employee's wallet
+                create_wallet_transaction(
+                    wallet_system=wallet_system,
+                    wallet_type='reimbursement',
+                    transaction_type='reimbursement_reversed',
+                    amount=-reimbursement.amount,  # Negative amount to deduct
+                    description=f"Reimbursement approval UNDONE: {reimbursement.description}",
+                    reimbursement_request=reimbursement,
+                    created_by=request.user
+                )
+
+            except Exception as e:
+                return Response({
+                    'error': f'Failed to reverse wallet transactions: {str(e)}'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Reset reimbursement to pending status
+        reimbursement.status = "pending"
+        reimbursement.admin_comment = f"[UNDONE from {old_status}] " + (reimbursement.admin_comment or "")
+        reimbursement.approved_at = None
+        reimbursement.approved_by = None
+        reimbursement.save()
+
+        from .serializers import ReimbursementRequestSerializer
+        serializer = ReimbursementRequestSerializer(reimbursement)
+        
+        return Response({
+            'message': f'Reimbursement approval undone successfully. Reverted from {old_status} to pending.',
+            'reimbursement': serializer.data
+        }, status=status.HTTP_200_OK)
 
 
 # TO-DO System Views
@@ -2414,7 +2583,7 @@ def create_wallet_transaction(wallet_system, wallet_type, transaction_type, amou
         ]
         debit_transactions = [
             'advance_withdrawal', 'manual_withdrawal', 'advance_deduction', 
-            'reimbursement_paid', 'advance_repaid'
+            'reimbursement_paid', 'advance_repaid', 'reimbursement_reversed'  # For undo operations
         ]
         
         if transaction_type in credit_transactions:

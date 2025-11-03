@@ -10,6 +10,7 @@ from .views import (
     ComplaintCloseView, WalletDetailView, WalletTransactionCreateView, WalletTransactionListView, 
     CentralWalletDetailView, CentralWalletTransactionCreateView, CentralWalletTransactionListView, 
     ReimbursementRequestListView, ReimbursementRequestApproveRejectView, ReimbursementRequestCreateView, ReimbursementPaymentView, 
+    ReimbursementUndoApprovalView, LeaveRequestUndoApprovalView,  # New: Undo views
     CurrentUserView, EmployeeDashboardStatsView, TaskViewSet, TaskUpdateView, TodayTasksView, 
     ManagerDashboardView, TaskReportViewSet, TaskCommentViewSet, QuickTaskActionsView, SubtaskViewSet, AdminTaskManagementView, 
     SubtaskQuickActionsView, AssignableEmployeesView, TeamMembersView, TeamViewSet, TeamMembershipViewSet, TeamTaskViewSet, AssignTaskToTeamView, 
@@ -134,6 +135,7 @@ urlpatterns = [
     #leave requests
     path("leave_requests/", LeaveRequestCreateView.as_view(), name="leave_request_create"),
     path("leave_requests/<uuid:pk>/status/", LeaveRequestUpdateStatusView.as_view(), name="leave_request_update_status"),
+    path("leave_requests/<uuid:pk>/undo/", LeaveRequestUndoApprovalView.as_view(), name="leave_request_undo"),  # New: Undo leave request
     path("leave_requests/list/", LeaveRequestListView.as_view(), name="leave_request_list"),
     
     #complaints
@@ -170,6 +172,7 @@ urlpatterns = [
     path("reimbursements/create/", ReimbursementRequestCreateView.as_view(), name="reimbursement-create"),
     path("reimbursements/<uuid:pk>/review/", ReimbursementRequestApproveRejectView.as_view(), name="reimbursement-review"),
     path("reimbursements/<uuid:pk>/pay/", ReimbursementPaymentView.as_view(), name="reimbursement-pay"),
+    path("reimbursements/<uuid:pk>/undo/", ReimbursementUndoApprovalView.as_view(), name="reimbursement-undo"),  # New: Undo reimbursement
     
     # Client Complaint System - Public endpoints (no authentication required)
     path("public/complaint-categories/", PublicComplaintCategoryListView.as_view(), name="public-complaint-categories"),
