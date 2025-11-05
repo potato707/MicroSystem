@@ -1394,7 +1394,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         queryset = Task.objects.all()
         
         # For individual task operations (retrieve, update, partial_update, destroy), don't apply date filter
-        if self.action in ['retrieve', 'update', 'partial_update', 'destroy']:
+        if self.action in ['retrieve', 'update', 'partial_update', 'destroy', 'list']:
             # Still apply role-based filtering for security
             if user.role == 'employee':
                 try:
@@ -1418,8 +1418,8 @@ class TaskViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(date=date)
             except ValueError:
                 pass
-        else:
-            queryset = queryset.filter(date=datetime.date.today())
+        #else:
+            #queryset = queryset.filter(date=datetime.date.today())
         
         # Role-based filtering for list view
         if user.role == 'employee':
