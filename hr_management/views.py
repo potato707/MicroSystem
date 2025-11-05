@@ -1585,8 +1585,13 @@ class AdminTaskManagementView(generics.ListAPIView):
         
         # Permission filtering
         if user.role == 'admin':
-            # Admins can see all tasks
-            pass
+            # Admins can see all tasks EXCEPT their own tasks
+            try:
+                # Exclude tasks assigned to the admin user's employee profile
+                if hasattr(user, 'employee'):
+                    queryset = queryset.exclude(employee=user.employee)
+            except Employee.DoesNotExist:
+                pass  # If admin has no employee profile, show all tasks
         elif user.role == 'employee':
             # Check if user is a team manager
             try:
