@@ -173,16 +173,33 @@ class EmployeeDashboardStatsView(APIView):
             has_checked_in = today_shifts.exists()
             has_active_shift = active_shift is not None
             
-            # Check if employee is late based on shift schedule
+            # Check if employee has a scheduled shift today or if it's a day off
+            day_of_week = today.weekday()
+            our_day_of_week = (day_of_week + 1) % 7  # Convert to Sunday=0
+            
+            # Default status
             attendance_status = 'absent'
             is_late = False
             late_minutes = 0
             
-            if has_checked_in and latest_shift:
-                # Get the shift schedule for today
-                day_of_week = today.weekday()
-                our_day_of_week = (day_of_week + 1) % 7  # Convert to Sunday=0
+            # First, check if there's an approved override (vacation, sick leave, etc.)
+            try:
+                override = ShiftOverride.objects.get(
+                    employee=employee,
+                    date=today,
+                    status='approved'
+                )
                 
+                if override.override_type in ['day_off', 'vacation', 'sick_leave', 'holiday']:
+                    attendance_status = 'day_off'
+                    # No need to check further - it's a confirmed day off
+                    has_checked_in = False
+                    has_active_shift = False
+            except ShiftOverride.DoesNotExist:
+                pass
+            
+            # If not a day off, check if there's a scheduled shift for today
+            if attendance_status != 'day_off':
                 try:
                     shift_schedule = WeeklyShiftSchedule.objects.get(
                         employee=employee,
@@ -190,27 +207,37 @@ class EmployeeDashboardStatsView(APIView):
                         is_active=True
                     )
                     
-                    expected_start = shift_schedule.start_time
-                    if isinstance(expected_start, str):
-                        import datetime as dt
-                        expected_start = dt.datetime.strptime(expected_start, '%H:%M:%S').time() if len(expected_start) > 5 else dt.datetime.strptime(expected_start, '%H:%M').time()
-                    
-                    # Compare check-in time with expected start time (grace period: 15 minutes)
-                    check_in_time = latest_shift.check_in.time()
-                    expected_start_dt = timezone.datetime.combine(today, expected_start)
-                    check_in_dt = timezone.datetime.combine(today, check_in_time)
-                    grace_period = timezone.timedelta(minutes=15)
-                    
-                    if check_in_dt > (expected_start_dt + grace_period):
-                        is_late = True
-                        late_minutes = int((check_in_dt - expected_start_dt).total_seconds() / 60)
-                        attendance_status = 'late'
+                    # There is a scheduled shift for today
+                    if has_checked_in and latest_shift:
+                        expected_start = shift_schedule.start_time
+                        if isinstance(expected_start, str):
+                            import datetime as dt
+                            expected_start = dt.datetime.strptime(expected_start, '%H:%M:%S').time() if len(expected_start) > 5 else dt.datetime.strptime(expected_start, '%H:%M').time()
+                        
+                        # Compare check-in time with expected start time (grace period: 15 minutes)
+                        check_in_time = latest_shift.check_in.time()
+                        expected_start_dt = timezone.datetime.combine(today, expected_start)
+                        check_in_dt = timezone.datetime.combine(today, check_in_time)
+                        grace_period = timezone.timedelta(minutes=15)
+                        
+                        if check_in_dt > (expected_start_dt + grace_period):
+                            is_late = True
+                            late_minutes = int((check_in_dt - expected_start_dt).total_seconds() / 60)
+                            attendance_status = 'late'
+                        else:
+                            attendance_status = 'present'
                     else:
-                        attendance_status = 'present'
+                        # Shift scheduled but hasn't checked in yet
+                        attendance_status = 'absent'
                 
                 except WeeklyShiftSchedule.DoesNotExist:
-                    # No schedule defined - default to present
-                    attendance_status = 'present'
+                    # No schedule defined for this day of the week - it's a weekly day off
+                    if has_checked_in:
+                        # They checked in on their day off
+                        attendance_status = 'present'
+                    else:
+                        # No shift scheduled for this day - it's their weekly day off
+                        attendance_status = 'day_off'
             
             # Get wallet system balances (new multi-wallet system) 
             try:
