@@ -639,16 +639,36 @@ class ShiftCheckInView(APIView):
         # Validate location against office location
         office_location = OfficeLocation.get_active_location()
         if office_location:
+            # Log coordinates for debugging
+            print(f"Check-in attempt by {employee.name}")
+            print(f"User coordinates: ({user_latitude}, {user_longitude})")
+            print(f"Office coordinates: ({office_location.latitude}, {office_location.longitude})")
+            print(f"Allowed radius: {office_location.radius_meters}m")
+            
             distance = calculate_distance(
                 user_latitude, user_longitude,
                 office_location.latitude, office_location.longitude
             )
             
+            print(f"Calculated distance: {distance:.2f}m")
+            
+            # Round distance to avoid floating point precision issues
+            distance = round(distance, 2)
+            
             if distance > office_location.radius_meters:
                 return Response({
                     'error': f'You are too far from the office. Distance: {int(distance)}m, Required: within {office_location.radius_meters}m',
                     'distance_meters': int(distance),
-                    'required_radius': office_location.radius_meters
+                    'required_radius': office_location.radius_meters,
+                    'user_location': {
+                        'latitude': float(user_latitude),
+                        'longitude': float(user_longitude)
+                    },
+                    'office_location': {
+                        'latitude': float(office_location.latitude),
+                        'longitude': float(office_location.longitude),
+                        'name': office_location.name
+                    }
                 }, status=400)
         
         # Check for active shifts
@@ -718,16 +738,36 @@ class ShiftCheckOutView(APIView):
         # Validate location against office location
         office_location = OfficeLocation.get_active_location()
         if office_location:
+            # Log coordinates for debugging
+            print(f"Check-out attempt by {employee.name}")
+            print(f"User coordinates: ({user_latitude}, {user_longitude})")
+            print(f"Office coordinates: ({office_location.latitude}, {office_location.longitude})")
+            print(f"Allowed radius: {office_location.radius_meters}m")
+            
             distance = calculate_distance(
                 user_latitude, user_longitude,
                 office_location.latitude, office_location.longitude
             )
             
+            print(f"Calculated distance: {distance:.2f}m")
+            
+            # Round distance to avoid floating point precision issues
+            distance = round(distance, 2)
+            
             if distance > office_location.radius_meters:
                 return Response({
                     'error': f'You are too far from the office. Distance: {int(distance)}m, Required: within {office_location.radius_meters}m',
                     'distance_meters': int(distance),
-                    'required_radius': office_location.radius_meters
+                    'required_radius': office_location.radius_meters,
+                    'user_location': {
+                        'latitude': float(user_latitude),
+                        'longitude': float(user_longitude)
+                    },
+                    'office_location': {
+                        'latitude': float(office_location.latitude),
+                        'longitude': float(office_location.longitude),
+                        'name': office_location.name
+                    }
                 }, status=400)
         
         # Get shift to check out
@@ -1445,8 +1485,8 @@ class TaskViewSet(viewsets.ModelViewSet):
                 queryset = queryset.filter(date=date)
             except ValueError:
                 pass
-        #else:
-            #queryset = queryset.filter(date=datetime.date.today())
+        # else:
+            # queryset = queryset.filter(date=datetime.date.today())
         
         # Role-based filtering for list view
         if user.role == 'employee':
@@ -2462,20 +2502,52 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     """
     Calculate the distance between two GPS coordinates using Haversine formula
     Returns distance in meters
+    
+    Enhanced version with better type handling and precision
     """
+    from decimal import Decimal
+    
+    # Convert to float, handling Decimal, string, and numeric types
+    def to_float(value):
+        if isinstance(value, Decimal):
+            return float(value)
+        elif isinstance(value, str):
+            return float(value)
+        return float(value)
+    
+    try:
+        lat1 = to_float(lat1)
+        lon1 = to_float(lon1)
+        lat2 = to_float(lat2)
+        lon2 = to_float(lon2)
+    except (ValueError, TypeError) as e:
+        print(f"Error converting coordinates: {e}")
+        print(f"lat1={lat1} ({type(lat1)}), lon1={lon1} ({type(lon1)})")
+        print(f"lat2={lat2} ({type(lat2)}), lon2={lon2} ({type(lon2)})")
+        return float('inf')  # Return very large distance on error
+    
     # Convert latitude and longitude from degrees to radians
-    lat1, lon1, lat2, lon2 = map(math.radians, [float(lat1), float(lon1), float(lat2), float(lon2)])
+    lat1_rad = math.radians(lat1)
+    lon1_rad = math.radians(lon1)
+    lat2_rad = math.radians(lat2)
+    lon2_rad = math.radians(lon2)
     
     # Haversine formula
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-    a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+    dlat = lat2_rad - lat1_rad
+    dlon = lon2_rad - lon1_rad
+    
+    a = math.sin(dlat/2)**2 + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon/2)**2
     c = 2 * math.asin(math.sqrt(a))
     
-    # Radius of Earth in meters
+    # Radius of Earth in meters (average)
     r = 6371000
     
-    return c * r
+    distance = c * r
+    
+    # Add debug logging
+    print(f"Distance calculation: ({lat1}, {lon1}) -> ({lat2}, {lon2}) = {distance:.2f}m")
+    
+    return distance
 
 
 # Office Location Management Views
@@ -2559,6 +2631,64 @@ class CurrentOfficeLocationView(APIView):
             return Response({
                 'message': 'No active office location set'
             }, status=404)
+
+
+class CheckDistanceView(APIView):
+    """
+    Test endpoint to check distance from office without actually checking in
+    Useful for debugging GPS issues
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        user_latitude = request.data.get('latitude')
+        user_longitude = request.data.get('longitude')
+        
+        if not user_latitude or not user_longitude:
+            return Response({
+                'error': 'GPS coordinates (latitude, longitude) are required'
+            }, status=400)
+        
+        office_location = OfficeLocation.get_active_location()
+        if not office_location:
+            return Response({
+                'error': 'No active office location configured'
+            }, status=404)
+        
+        # Calculate distance
+        distance = calculate_distance(
+            user_latitude, user_longitude,
+            office_location.latitude, office_location.longitude
+        )
+        
+        # Round for display
+        distance = round(distance, 2)
+        
+        # Check if within range
+        is_within_range = distance <= office_location.radius_meters
+        
+        # Calculate how much over/under the limit
+        difference = distance - office_location.radius_meters
+        
+        return Response({
+            'user_location': {
+                'latitude': float(user_latitude),
+                'longitude': float(user_longitude)
+            },
+            'office_location': {
+                'name': office_location.name,
+                'latitude': float(office_location.latitude),
+                'longitude': float(office_location.longitude)
+            },
+            'distance_meters': distance,
+            'allowed_radius_meters': office_location.radius_meters,
+            'is_within_range': is_within_range,
+            'difference_meters': round(difference, 2),
+            'status': 'ALLOWED' if is_within_range else 'TOO FAR',
+            'message': f'You are {int(distance)}m from the office. ' + 
+                      (f'Within allowed range of {office_location.radius_meters}m ✓' if is_within_range 
+                       else f'Outside allowed range by {int(abs(difference))}m ✗')
+        })
 
 
 # Multi-Wallet System Utilities
