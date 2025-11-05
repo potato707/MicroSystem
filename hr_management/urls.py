@@ -14,7 +14,7 @@ from .views import (
     CurrentUserView, EmployeeDashboardStatsView, TaskViewSet, TaskUpdateView, TodayTasksView, 
     ManagerDashboardView, TaskReportViewSet, TaskCommentViewSet, QuickTaskActionsView, SubtaskViewSet, AdminTaskManagementView, 
     SubtaskQuickActionsView, AssignableEmployeesView, TeamMembersView, TeamViewSet, TeamMembershipViewSet, TeamTaskViewSet, AssignTaskToTeamView, 
-    TeamDashboardView, OfficeLocationViewSet, SetOfficeLocationView, CurrentOfficeLocationView,
+    TeamDashboardView, OfficeLocationViewSet, SetOfficeLocationView, CurrentOfficeLocationView, CheckDistanceView,
     # Task Sharing Views
     CreateShareableTaskLinkView, ViewSharedTaskView, ListTaskShareLinksView, DeactivateShareLinkView,
     # Multi-wallet views
@@ -131,6 +131,7 @@ urlpatterns = [
     # Office Location Management
     path("office-location/set/", SetOfficeLocationView.as_view(), name="set-office-location"),
     path("office-location/current/", CurrentOfficeLocationView.as_view(), name="current-office-location"),
+    path("office-location/check-distance/", CheckDistanceView.as_view(), name="check-distance"),  # Test distance
     
     #leave requests
     path("leave_requests/", LeaveRequestCreateView.as_view(), name="leave_request_create"),

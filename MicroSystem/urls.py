@@ -13,6 +13,7 @@ from drf_spectacular.views import (
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('hr/', include('hr_management.urls')),  # <--- include HR app routes
+    path('pos/', include('pos_management.urls')),  # <--- POS Management Module
     path('api/', include('hr_management.tenant_urls')),  # <--- Tenant management API
     
     # Authentication endpoints

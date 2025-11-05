@@ -88,6 +88,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'hr_management',
+    'pos_management',  # POS Management Module
     'drf_spectacular',
     "corsheaders",
 ]
