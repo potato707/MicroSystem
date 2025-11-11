@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import ClientType, Client, Product, Distribution
+from .models import ClientType, Client, SimpleProduct, Distribution, ClientInventory
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -130,7 +130,7 @@ class ProductSerializer(serializers.ModelSerializer):
     total_distributed = serializers.ReadOnlyField()
     
     class Meta:
-        model = Product
+        model = SimpleProduct
         fields = [
             'id', 'name', 'description', 'product_type', 'product_type_display',
             'base_price', 'is_active', 'total_distributed',
@@ -238,3 +238,116 @@ class POSDashboardStatsSerializer(serializers.Serializer):
     # Lists
     recent_distributions = DistributionSerializer(many=True)
     upcoming_visit_distributions = DistributionSerializer(many=True)
+
+
+class ClientInventorySerializer(serializers.ModelSerializer):
+    """Serializer for ClientInventory model"""
+    client_name = serializers.CharField(source='client.name', read_only=True)
+    product_name = serializers.CharField(source='product.name', read_only=True)
+    product_type = serializers.CharField(source='product.product_type', read_only=True)
+    last_updated_by_name = serializers.CharField(source='last_updated_by.username', read_only=True)
+    
+    # Computed fields
+    inventory_status = serializers.ReadOnlyField()
+    inventory_status_display = serializers.ReadOnlyField()
+    inventory_percentage = serializers.ReadOnlyField()
+    is_low_stock = serializers.ReadOnlyField()
+    is_out_of_stock = serializers.ReadOnlyField()
+    days_until_expiry = serializers.ReadOnlyField()
+    is_expired = serializers.ReadOnlyField()
+    is_expiring_soon = serializers.ReadOnlyField()
+    
+    class Meta:
+        model = ClientInventory
+        fields = [
+            'id', 'client', 'client_name', 'product', 'product_name', 'product_type',
+            'current_quantity', 'minimum_quantity', 'maximum_quantity',
+            'expiry_date', 'location', 'notes',
+            'inventory_status', 'inventory_status_display', 'inventory_percentage',
+            'is_low_stock', 'is_out_of_stock',
+            'days_until_expiry', 'is_expired', 'is_expiring_soon',
+            'last_updated_by', 'last_updated_by_name', 'last_distribution',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'last_updated_by', 'last_distribution', 'created_at', 'updated_at']
+    
+    def validate_expiry_date(self, value):
+        """Allow empty string for optional expiry_date"""
+        if value == '' or value is None:
+            return None
+        return value
+    
+    def validate_location(self, value):
+        """Allow empty string for optional location"""
+        if value == '' or value is None:
+            return None
+        return value
+    
+    def validate_notes(self, value):
+        """Allow empty string for optional notes"""
+        if value == '' or value is None:
+            return None
+        return value
+    
+    def validate(self, data):
+        """Validate inventory data"""
+        current_quantity = data.get('current_quantity', 0)
+        minimum_quantity = data.get('minimum_quantity', 0)
+        maximum_quantity = data.get('maximum_quantity', 100)
+        
+        if current_quantity < 0:
+            raise serializers.ValidationError("Current quantity cannot be negative")
+        
+        if minimum_quantity < 0:
+            raise serializers.ValidationError("Minimum quantity cannot be negative")
+        
+        if maximum_quantity <= 0:
+            raise serializers.ValidationError("Maximum quantity must be greater than 0")
+        
+        if minimum_quantity > maximum_quantity:
+            raise serializers.ValidationError("Minimum quantity cannot be greater than maximum quantity")
+        
+        # Duplicate check is handled in the viewset's create() method
+        # to provide better error messages with existing inventory details
+        
+        return data
+
+
+class ClientInventoryUpdateSerializer(serializers.Serializer):
+    """Serializer for updating inventory quantities"""
+    ACTION_CHOICES = [
+        ('add', 'إضافة'),
+        ('reduce', 'تقليل'),
+        ('set', 'تعيين'),
+    ]
+    
+    action = serializers.ChoiceField(choices=ACTION_CHOICES, required=True)
+    quantity = serializers.DecimalField(max_digits=10, decimal_places=2, required=True)
+    notes = serializers.CharField(required=False, allow_blank=True)
+    
+    def validate_quantity(self, value):
+        """Validate quantity is positive"""
+        if value < 0:
+            raise serializers.ValidationError("Quantity cannot be negative")
+        return value
+
+
+class ClientInventoryListSerializer(serializers.ModelSerializer):
+    """Simplified serializer for listing inventory"""
+    product_name = serializers.CharField(source='product.name', read_only=True)
+    inventory_status = serializers.ReadOnlyField()
+    inventory_percentage = serializers.ReadOnlyField()
+    is_low_stock = serializers.ReadOnlyField()
+    is_expiring_soon = serializers.ReadOnlyField()
+    
+    class Meta:
+        model = ClientInventory
+        fields = [
+            'id', 'product', 'product_name',
+            'current_quantity', 'minimum_quantity', 'maximum_quantity',
+            'expiry_date', 'location',
+            'inventory_status', 'inventory_percentage',
+            'is_low_stock', 'is_expiring_soon',
+            'updated_at'
+        ]
+

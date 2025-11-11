@@ -14,17 +14,20 @@ from datetime import datetime, timedelta
 
 
 # Helper functions for multi-wallet system
-def get_or_create_wallet_system(employee):
+def get_or_create_wallet_system(employee, using=None):
     """Get or create wallet system for employee"""
-    wallet_system, created = EmployeeWalletSystem.objects.get_or_create(employee=employee)
+    if using is None:
+        using = employee._state.db or 'default'
+    
+    wallet_system, created = EmployeeWalletSystem.objects.using(using).get_or_create(employee_id=employee.id)
     
     # Ensure all three wallets exist
     if not hasattr(wallet_system, 'main_wallet'):
-        MainWallet.objects.create(wallet_system=wallet_system)
+        MainWallet.objects.using(using).create(wallet_system_id=wallet_system.id)
     if not hasattr(wallet_system, 'reimbursement_wallet'):
-        ReimbursementWallet.objects.create(wallet_system=wallet_system)
+        ReimbursementWallet.objects.using(using).create(wallet_system_id=wallet_system.id)
     if not hasattr(wallet_system, 'advance_wallet'):
-        AdvanceWallet.objects.create(wallet_system=wallet_system)
+        AdvanceWallet.objects.using(using).create(wallet_system_id=wallet_system.id)
     
     return wallet_system
 
@@ -71,13 +74,44 @@ def create_multi_wallet_transaction(wallet_system, wallet_type, transaction_type
         wallet.save()
         return wallet_transaction
 
+@receiver(post_save, sender=User)
+def create_employee_for_superuser(sender, instance, created, **kwargs):
+    """Automatically create Employee record for superusers"""
+    # Skip if this is being created during tenant initialization (using kwarg)
+    if kwargs.get('raw', False) or hasattr(instance, '_skip_employee_creation'):
+        return
+    
+    if created and (instance.is_superuser or instance.role == 'admin'):
+        # Check if employee already exists
+        if not hasattr(instance, 'employee'):
+            from datetime import date
+            # Get the database being used for this User instance
+            db_alias = instance._state.db or 'default'
+            
+            Employee.objects.using(db_alias).create(
+                user=instance,
+                name=instance.name or instance.username,
+                position='Administrator',
+                department='Management',
+                hire_date=date.today(),
+                salary=0,  # Empty salary
+                phone='',  # Empty phone
+                email=instance.email or '',
+                address='',  # Empty address
+                emergency_contact=''  # Empty emergency contact
+            )
+
 @receiver(post_save, sender=Employee)
 def create_wallet_for_employee(sender, instance, created, **kwargs):
     if created:
+        # Get the database being used for this Employee instance
+        db_alias = instance._state.db or 'default'
+        
         # Create legacy wallet for backward compatibility
-        Wallet.objects.create(employee=instance)
+        Wallet.objects.using(db_alias).create(employee_id=instance.id)
+        
         # Create new multi-wallet system
-        get_or_create_wallet_system(instance)
+        wallet_system = get_or_create_wallet_system(instance)
 
 @receiver(post_delete, sender=Employee)
 def delete_user_with_employee(sender, instance, **kwargs):
@@ -913,6 +947,8 @@ def initialize_tenant_database(sender, instance, created, **kwargs):
             # 4. Create admin user if credentials were provided
             if credentials:
                 print(f"🔄 Creating admin user: {credentials['username']}...", flush=True)
+                
+                # Disable the post_save signal temporarily by setting flag
                 admin_user = User(
                     username=credentials['username'],
                     email=credentials['email'],
@@ -922,12 +958,38 @@ def initialize_tenant_database(sender, instance, created, **kwargs):
                     is_active=True,
                     role='admin'
                 )
+                admin_user._skip_employee_creation = True  # Flag to skip signal
                 admin_user.set_password(credentials['password'])
                 admin_user.save(using=db_alias)
                 logger.info(f"✅ Created admin user '{credentials['username']}' for tenant '{instance.subdomain}'")
                 print(f"✅ Admin user created: {credentials['username']}", flush=True)
                 print(f"   Email: {credentials['email']}", flush=True)
                 print(f"   Password: {credentials['password']}", flush=True)
+                
+                # 5. Create Employee record for admin manually (signal is disabled)
+                from datetime import date
+                try:
+                    # Create employee directly without going through the router
+                    employee = Employee.objects.using(db_alias).create(
+                        user_id=admin_user.id,  # Use user_id directly to bypass relation check
+                        name=credentials.get('name', credentials['username']),
+                        position='Administrator',
+                        department='Management',
+                        hire_date=date.today(),
+                        salary=0,  # Empty salary
+                        phone='',  # Empty phone
+                        email=credentials['email'],
+                        address='',  # Empty address
+                        emergency_contact=''  # Empty emergency contact
+                    )
+                    print(f"✅ Employee record created for admin user", flush=True)
+                    logger.info(f"✅ Created employee record for admin '{credentials['username']}'")
+                except Exception as emp_error:
+                    print(f"⚠️ Warning: Could not create employee record: {emp_error}", flush=True)
+                    logger.warning(f"⚠️ Could not create employee for admin: {emp_error}")
+                    import traceback
+                    traceback.print_exc()
+                
                 print(f"\n{'='*60}", flush=True)
                 print(f"✅ TENANT '{instance.subdomain}' READY TO USE!", flush=True)
                 print(f"{'='*60}\n", flush=True)

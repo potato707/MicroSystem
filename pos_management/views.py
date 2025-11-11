@@ -4,15 +4,17 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from django.db.models import Q, Sum, Count
+from django.db import IntegrityError
 from django.utils import timezone
 from datetime import timedelta
 from django_filters.rest_framework import DjangoFilterBackend
 
-from .models import ClientType, Client, Product, Distribution
+from .models import ClientType, Client, SimpleProduct, Distribution, ClientInventory
 from .serializers import (
     ClientTypeSerializer, ClientSerializer, ProductSerializer,
     DistributionSerializer, DistributionCreateSerializer,
-    POSDashboardStatsSerializer
+    POSDashboardStatsSerializer, ClientInventorySerializer,
+    ClientInventoryUpdateSerializer, ClientInventoryListSerializer
 )
 
 
@@ -161,7 +163,7 @@ class ProductViewSet(viewsets.ModelViewSet):
     """
     ViewSet for managing Products/Services
     """
-    queryset = Product.objects.all()
+    queryset = SimpleProduct.objects.all()
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
@@ -315,8 +317,8 @@ class POSDashboardStatsView(APIView):
         ).count()
         
         # Product statistics
-        total_products = Product.objects.count()
-        active_products = Product.objects.filter(is_active=True).count()
+        total_products = SimpleProduct.objects.count()
+        active_products = SimpleProduct.objects.filter(is_active=True).count()
         
         # Revenue calculation
         total_revenue = Distribution.objects.filter(
@@ -353,3 +355,175 @@ class POSDashboardStatsView(APIView):
         
         serializer = POSDashboardStatsSerializer(data)
         return Response(serializer.data)
+
+
+class ClientInventoryViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing Client Inventory
+    Tracks product quantities at each client location
+    """
+    queryset = ClientInventory.objects.all()
+    serializer_class = ClientInventorySerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['client', 'product']  # Only database fields, computed fields handled in get_queryset
+    search_fields = ['client__name', 'product__name', 'location']
+    ordering_fields = ['current_quantity', 'updated_at', 'expiry_date']
+    ordering = ['client', 'product']
+    
+    def get_queryset(self):
+        queryset = super().get_queryset().select_related('client', 'product', 'last_updated_by')
+        
+        # Filter by client
+        client_id = self.request.query_params.get('client')
+        if client_id:
+            queryset = queryset.filter(client_id=client_id)
+        
+        # Filter by product
+        product_id = self.request.query_params.get('product')
+        if product_id:
+            queryset = queryset.filter(product_id=product_id)
+        
+        # Filter by low stock
+        low_stock = self.request.query_params.get('low_stock')
+        if low_stock is not None:
+            if low_stock.lower() == 'true':
+                queryset = [item for item in queryset if item.is_low_stock]
+        
+        # Filter by out of stock
+        out_of_stock = self.request.query_params.get('out_of_stock')
+        if out_of_stock is not None:
+            if out_of_stock.lower() == 'true':
+                queryset = [item for item in queryset if item.is_out_of_stock]
+        
+        # Filter by expiring soon
+        expiring_soon = self.request.query_params.get('expiring_soon')
+        if expiring_soon is not None:
+            if expiring_soon.lower() == 'true':
+                queryset = [item for item in queryset if item.is_expiring_soon]
+        
+        return queryset
+    
+    def get_serializer_class(self):
+        """Use different serializers for different actions"""
+        if self.action == 'list':
+            return ClientInventoryListSerializer
+        return ClientInventorySerializer
+    
+    def perform_create(self, serializer):
+        serializer.save(last_updated_by=self.request.user)
+    
+    def create(self, request, *args, **kwargs):
+        """Override create to handle duplicate inventory gracefully"""
+        try:
+            return super().create(request, *args, **kwargs)
+        except IntegrityError as e:
+            # Check if it's a duplicate client+product error
+            if 'UNIQUE constraint' in str(e) or 'unique' in str(e).lower():
+                client_id = request.data.get('client')
+                product_id = request.data.get('product')
+                
+                if client_id and product_id:
+                    try:
+                        existing = ClientInventory.objects.get(client_id=client_id, product_id=product_id)
+                        return Response({
+                            'non_field_errors': [
+                                f'يوجد مخزون بالفعل لهذا المنتج عند هذا العميل. '
+                                f'الكمية الحالية: {existing.current_quantity}. '
+                                f'يمكنك تعديله بدلاً من إضافة مخزون جديد.'
+                            ],
+                            'existing_inventory_id': str(existing.id),
+                            'current_quantity': str(existing.current_quantity)
+                        }, status=status.HTTP_400_BAD_REQUEST)
+                    except ClientInventory.DoesNotExist:
+                        pass
+            
+            # If not a duplicate error or can't find existing, return generic error
+            return Response({
+                'non_field_errors': ['حدث خطأ في إضافة المخزون. يرجى المحاولة مرة أخرى.']
+            }, status=status.HTTP_400_BAD_REQUEST)
+    
+    def perform_update(self, serializer):
+        serializer.save(last_updated_by=self.request.user)
+    
+    @action(detail=True, methods=['post'])
+    def update_quantity(self, request, pk=None):
+        """
+        Update inventory quantity
+        POST /api/pos/inventory/{id}/update_quantity/
+        Body: {
+            "action": "add" | "reduce" | "set",
+            "quantity": 10,
+            "notes": "optional notes"
+        }
+        """
+        inventory = self.get_object()
+        serializer = ClientInventoryUpdateSerializer(data=request.data)
+        
+        if serializer.is_valid():
+            action = serializer.validated_data['action']
+            quantity = serializer.validated_data['quantity']
+            notes = serializer.validated_data.get('notes', '')
+            
+            if action == 'add':
+                inventory.add_stock(quantity, user=request.user)
+            elif action == 'reduce':
+                inventory.reduce_stock(quantity, user=request.user)
+            elif action == 'set':
+                inventory.set_stock(quantity, user=request.user)
+            
+            # Update notes if provided
+            if notes:
+                inventory.notes = notes
+                inventory.save(update_fields=['notes'])
+            
+            return Response({
+                'success': True,
+                'message': f'Inventory updated successfully',
+                'inventory': ClientInventorySerializer(inventory).data
+            })
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=False, methods=['get'])
+    def low_stock_alerts(self, request):
+        """Get all low stock items across all clients"""
+        low_stock_items = [item for item in self.get_queryset() if item.is_low_stock]
+        serializer = self.get_serializer(low_stock_items, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def expiring_soon(self, request):
+        """Get all items expiring soon"""
+        expiring_items = [item for item in self.get_queryset() if item.is_expiring_soon]
+        serializer = self.get_serializer(expiring_items, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def by_client(self, request):
+        """Get inventory grouped by client"""
+        client_id = request.query_params.get('client_id')
+        if not client_id:
+            return Response(
+                {'error': 'client_id parameter is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        inventory_items = self.get_queryset().filter(client_id=client_id)
+        serializer = ClientInventoryListSerializer(inventory_items, many=True)
+        
+        # Calculate statistics
+        total_items = len(inventory_items)
+        low_stock_count = sum(1 for item in inventory_items if item.is_low_stock)
+        out_of_stock_count = sum(1 for item in inventory_items if item.is_out_of_stock)
+        expiring_soon_count = sum(1 for item in inventory_items if item.is_expiring_soon)
+        
+        return Response({
+            'client_id': client_id,
+            'total_items': total_items,
+            'low_stock_count': low_stock_count,
+            'out_of_stock_count': out_of_stock_count,
+            'expiring_soon_count': expiring_soon_count,
+            'inventory': serializer.data
+        })
+

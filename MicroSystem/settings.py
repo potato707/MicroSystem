@@ -88,7 +88,7 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework_simplejwt',
     'hr_management',
-    'pos_management',  # POS Management Module
+    'pos_management.apps.PosManagementConfig',  # POS Management Module with signals
     'drf_spectacular',
     "corsheaders",
 ]
@@ -107,7 +107,7 @@ REST_FRAMEWORK = {
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ),
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-
+    "EXCEPTION_HANDLER": "pos_management.exception_handlers.custom_exception_handler",
 }
 
 SPECTACULAR_SETTINGS = {

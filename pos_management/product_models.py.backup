@@ -1,0 +1,403 @@
+"""
+Advanced Dynamic Product Management System
+Models for Categories, Units, and Products with Custom Fields
+"""
+import uuid
+from django.db import models
+from django.conf import settings
+from django.core.validators import MinValueValidator
+from decimal import Decimal
+
+
+class ProductCategory(models.Model):
+    """
+    Dynamic Product Categories with Custom Fields
+    Each category can have custom fields that appear when adding products
+    """
+    FIELD_TYPE_CHOICES = [
+        ('text', 'نص'),
+        ('number', 'رقم'),
+        ('decimal', 'رقم عشري'),
+        ('date', 'تاريخ'),
+        ('select', 'قائمة منسدلة'),
+        ('checkbox', 'خانة اختيار'),
+        ('textarea', 'نص طويل'),
+        ('email', 'بريد إلكتروني'),
+        ('phone', 'هاتف'),
+        ('url', 'رابط'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=200, unique=True, verbose_name="اسم التصنيف")
+    description = models.TextField(blank=True, null=True, verbose_name="الوصف")
+    icon = models.CharField(max_length=50, blank=True, null=True, verbose_name="أيقونة")
+    color = models.CharField(max_length=7, default="#3B82F6", verbose_name="اللون")
+    
+    # Custom fields configuration stored as JSON
+    # Example: [
+    #   {"name": "brand", "label": "الماركة", "type": "text", "required": true},
+    #   {"name": "expiry_type", "label": "نوع الصلاحية", "type": "select", 
+    #    "options": ["يومي", "شهري", "سنوي"], "required": true}
+    # ]
+    custom_fields = models.JSONField(default=list, blank=True, verbose_name="الحقول المخصصة")
+    
+    # Image upload
+    image = models.ImageField(
+        upload_to='categories/',
+        blank=True,
+        null=True,
+        verbose_name="صورة التصنيف"
+    )
+    
+    is_active = models.BooleanField(default=True, verbose_name="نشط")
+    display_order = models.IntegerField(default=0, verbose_name="ترتيب العرض")
+    
+    # Metadata
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='created_product_categories',
+        verbose_name="أنشأه"
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="تاريخ الإنشاء")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="تاريخ التحديث")
+    
+    class Meta:
+        verbose_name = "تصنيف المنتج"
+        verbose_name_plural = "تصنيفات المنتجات"
+        ordering = ['display_order', 'name']
+        indexes = [
+            models.Index(fields=['is_active', 'display_order']),
+            models.Index(fields=['name']),
+        ]
+    
+    def __str__(self):
+        return self.name
+    
+    @property
+    def products_count(self):
+        """Get number of products in this category"""
+        return self.products.count()
+    
+    @property
+    def units_count(self):
+        """Get number of units linked to this category"""
+        return self.category_units.count()
+
+
+class ProductUnit(models.Model):
+    """
+    Product Units (e.g., Box, Carton, Piece, Meter, Liter)
+    Each unit can have custom fields (dimensions, weight, etc.)
+    """
+    FIELD_TYPE_CHOICES = [
+        ('text', 'نص'),
+        ('number', 'رقم'),
+        ('decimal', 'رقم عشري'),
+        ('select', 'قائمة منسدلة'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=100, unique=True, verbose_name="اسم الوحدة")
+    short_name = models.CharField(max_length=20, blank=True, null=True, verbose_name="اسم مختصر")
+    description = models.TextField(blank=True, null=True, verbose_name="الوصف")
+    
+    # Custom fields for this unit
+    # Example: [
+    #   {"name": "length", "label": "الطول", "type": "decimal", "unit": "cm"},
+    #   {"name": "width", "label": "العرض", "type": "decimal", "unit": "cm"},
+    #   {"name": "height", "label": "الارتفاع", "type": "decimal", "unit": "cm"},
+    #   {"name": "weight", "label": "الوزن", "type": "decimal", "unit": "kg"}
+    # ]
+    custom_fields = models.JSONField(default=list, blank=True, verbose_name="الحقول المخصصة")
+    
+    # Whether this unit is countable (has pieces inside)
+    is_countable = models.BooleanField(default=True, verbose_name="قابل للعد")
+    
+    is_active = models.BooleanField(default=True, verbose_name="نشط")
+    display_order = models.IntegerField(default=0, verbose_name="ترتيب العرض")
+    
+    # Metadata
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='created_product_units',
+        verbose_name="أنشأه"
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="تاريخ الإنشاء")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="تاريخ التحديث")
+    
+    class Meta:
+        verbose_name = "وحدة المنتج"
+        verbose_name_plural = "وحدات المنتجات"
+        ordering = ['display_order', 'name']
+        indexes = [
+            models.Index(fields=['is_active', 'display_order']),
+            models.Index(fields=['name']),
+        ]
+    
+    def __str__(self):
+        return self.short_name if self.short_name else self.name
+    
+    @property
+    def products_count(self):
+        """Get number of products using this unit"""
+        return self.product_units.count()
+
+
+class CategoryUnit(models.Model):
+    """
+    Link between Category and Unit with pieces_per_unit
+    Example: Pepsi category + Carton unit = 10 pieces per carton
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    category = models.ForeignKey(
+        ProductCategory,
+        on_delete=models.CASCADE,
+        related_name='category_units',
+        verbose_name="التصنيف"
+    )
+    unit = models.ForeignKey(
+        ProductUnit,
+        on_delete=models.CASCADE,
+        related_name='category_units',
+        verbose_name="الوحدة"
+    )
+    
+    # Default pieces per unit for this category-unit combination
+    default_pieces_per_unit = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=1,
+        validators=[MinValueValidator(Decimal('0.01'))],
+        verbose_name="عدد الحبات الافتراضي في الوحدة"
+    )
+    
+    # Whether this is the primary unit for this category
+    is_primary = models.BooleanField(default=False, verbose_name="الوحدة الأساسية")
+    
+    display_order = models.IntegerField(default=0, verbose_name="ترتيب العرض")
+    
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="تاريخ الإنشاء")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="تاريخ التحديث")
+    
+    class Meta:
+        verbose_name = "ربط تصنيف-وحدة"
+        verbose_name_plural = "روابط التصنيفات-الوحدات"
+        unique_together = ['category', 'unit']
+        ordering = ['category', 'display_order', 'unit']
+        indexes = [
+            models.Index(fields=['category', 'unit']),
+            models.Index(fields=['is_primary']),
+        ]
+    
+    def __str__(self):
+        return f"{self.category.name} - {self.unit.name} ({self.default_pieces_per_unit} حبة)"
+
+
+class AdvancedProduct(models.Model):
+    """
+    Advanced Dynamic Products with category-specific custom fields
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    name = models.CharField(max_length=300, verbose_name="اسم المنتج")
+    sku = models.CharField(
+        max_length=100,
+        unique=True,
+        blank=True,
+        null=True,
+        verbose_name="كود المنتج (SKU)"
+    )
+    
+    category = models.ForeignKey(
+        ProductCategory,
+        on_delete=models.PROTECT,
+        related_name='products',
+        verbose_name="التصنيف",
+        null=True
+    )
+    
+    description = models.TextField(blank=True, null=True, verbose_name="الوصف")
+    
+    # Custom data specific to category (filled from category.custom_fields)
+    custom_data = models.JSONField(default=dict, blank=True, verbose_name="البيانات المخصصة")
+    
+    # Product image
+    image = models.ImageField(
+        upload_to='products/',
+        blank=True,
+        null=True,
+        verbose_name="صورة المنتج"
+    )
+    
+    # Pricing
+    base_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(Decimal('0'))],
+        verbose_name="السعر الأساسي"
+    )
+    
+    # Status
+    is_active = models.BooleanField(default=True, verbose_name="نشط")
+    is_featured = models.BooleanField(default=False, verbose_name="منتج مميز")
+    
+    # Metadata
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='created_advanced_products',
+        verbose_name="أنشأه"
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="تاريخ الإنشاء")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="تاريخ التحديث")
+    
+    class Meta:
+        verbose_name = "منتج متقدم"
+        verbose_name_plural = "المنتجات المتقدمة"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['category', 'is_active']),
+            models.Index(fields=['sku']),
+            models.Index(fields=['name']),
+            models.Index(fields=['-created_at']),
+        ]
+    
+    def __str__(self):
+        return f"{self.name} ({self.category.name})"
+    
+    def save(self, *args, **kwargs):
+        # Auto-generate SKU if not provided
+        if not self.sku:
+            import random
+            import string
+            self.sku = f"{self.category.name[:3].upper()}-{''.join(random.choices(string.digits, k=6))}"
+        super().save(*args, **kwargs)
+    
+    @property
+    def total_stock(self):
+        """Calculate total stock across all units"""
+        total = sum(pu.quantity_in_stock * pu.pieces_per_unit for pu in self.product_units.all())
+        return total
+    
+    @property
+    def units_count(self):
+        """Get number of units for this product"""
+        return self.product_units.count()
+
+
+class ProductUnitStock(models.Model):
+    """
+    Stock information for each product-unit combination
+    Stores quantity, pieces per unit, and unit-specific custom data
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    
+    product = models.ForeignKey(
+        AdvancedProduct,
+        on_delete=models.CASCADE,
+        related_name='product_units',
+        verbose_name="المنتج"
+    )
+    unit = models.ForeignKey(
+        ProductUnit,
+        on_delete=models.PROTECT,
+        related_name='product_units',
+        verbose_name="الوحدة"
+    )
+    
+    # Pieces per unit (can be customized per product, defaults from CategoryUnit)
+    pieces_per_unit = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=1,
+        validators=[MinValueValidator(Decimal('0.01'))],
+        verbose_name="عدد الحبات في الوحدة"
+    )
+    
+    # Stock quantity for this unit
+    quantity_in_stock = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(Decimal('0'))],
+        verbose_name="الكمية في المخزن"
+    )
+    
+    # Minimum stock level (for alerts)
+    minimum_stock = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(Decimal('0'))],
+        verbose_name="الحد الأدنى للمخزون"
+    )
+    
+    # Custom data specific to this unit (filled from unit.custom_fields)
+    # Example: {"length": "30", "width": "20", "height": "15", "weight": "5.5"}
+    custom_data = models.JSONField(default=dict, blank=True, verbose_name="بيانات الوحدة المخصصة")
+    
+    # Unit-specific pricing
+    unit_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(Decimal('0'))],
+        verbose_name="سعر الوحدة"
+    )
+    
+    # Whether this is the primary unit for this product
+    is_primary = models.BooleanField(default=False, verbose_name="الوحدة الأساسية")
+    
+    display_order = models.IntegerField(default=0, verbose_name="ترتيب العرض")
+    
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="تاريخ الإنشاء")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="تاريخ التحديث")
+    
+    class Meta:
+        verbose_name = "مخزون وحدة المنتج"
+        verbose_name_plural = "مخزون وحدات المنتجات"
+        unique_together = ['product', 'unit']
+        ordering = ['product', 'display_order', 'unit']
+        indexes = [
+            models.Index(fields=['product', 'unit']),
+            models.Index(fields=['quantity_in_stock']),
+            models.Index(fields=['is_primary']),
+        ]
+    
+    def __str__(self):
+        return f"{self.product.name} - {self.unit.name} ({self.quantity_in_stock})"
+    
+    @property
+    def total_pieces(self):
+        """Calculate total pieces for this unit"""
+        return self.quantity_in_stock * self.pieces_per_unit
+    
+    @property
+    def is_low_stock(self):
+        """Check if stock is below minimum"""
+        return self.quantity_in_stock <= self.minimum_stock
+    
+    def add_stock(self, quantity):
+        """Add stock quantity"""
+        self.quantity_in_stock += quantity
+        self.save(update_fields=['quantity_in_stock', 'updated_at'])
+    
+    def reduce_stock(self, quantity):
+        """Reduce stock quantity"""
+        if self.quantity_in_stock >= quantity:
+            self.quantity_in_stock -= quantity
+            self.save(update_fields=['quantity_in_stock', 'updated_at'])
+            return True
+        return False
+    
+    def set_stock(self, quantity):
+        """Set stock to specific quantity"""
+        self.quantity_in_stock = quantity
+        self.save(update_fields=['quantity_in_stock', 'updated_at'])

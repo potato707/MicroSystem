@@ -165,12 +165,18 @@ class EmployeeDashboardStatsView(APIView):
                 check_in__date=today
             ).order_by('check_in')
             
-            # Check if there's an active (ongoing) shift
-            active_shift = today_shifts.filter(check_out__isnull=True).first()
-            latest_shift = today_shifts.last()
+            # Check if there's an ONGOING shift from ANY previous day (not checked out yet)
+            ongoing_shift = WorkShift.objects.filter(
+                employee=employee,
+                check_out__isnull=True
+            ).order_by('-check_in').first()
+            
+            # Use ongoing shift if exists, otherwise use today's shift
+            active_shift = ongoing_shift if ongoing_shift else today_shifts.filter(check_out__isnull=True).first()
+            latest_shift = ongoing_shift if ongoing_shift else today_shifts.last()
             
             # Determine attendance status based on shifts
-            has_checked_in = today_shifts.exists()
+            has_checked_in = (ongoing_shift is not None) or today_shifts.exists()
             has_active_shift = active_shift is not None
             
             # Check if employee has a scheduled shift today or if it's a day off

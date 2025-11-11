@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import ClientType, Client, Product, Distribution
+from .models import ClientType, Client, SimpleProduct, Distribution
 
 
 @admin.register(ClientType)
@@ -59,7 +59,7 @@ class ClientAdmin(admin.ModelAdmin):
     )
 
 
-@admin.register(Product)
+@admin.register(SimpleProduct)
 class ProductAdmin(admin.ModelAdmin):
     list_display = ['name', 'product_type', 'base_price', 'is_active', 'created_at']
     list_filter = ['product_type', 'is_active', 'created_at']
