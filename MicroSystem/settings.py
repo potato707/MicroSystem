@@ -89,6 +89,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     'hr_management',
     'pos_management.apps.PosManagementConfig',  # POS Management Module with signals
+    'product_management',  # NEW: Advanced Product Management System (separated from POS)
     'drf_spectacular',
     "corsheaders",
 ]

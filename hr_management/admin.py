@@ -11,11 +11,112 @@ class SubtaskInline(admin.TabularInline):
 
 @admin.register(Employee)
 class EmployeeAdmin(admin.ModelAdmin):
-    list_display = ['name', 'position', 'department', 'status', 'hire_date']
+    list_display = ['name', 'position', 'department', 'get_branches', 'status', 'hire_date']
     list_filter = ['status', 'department', 'hire_date', 'complaint_categories']
     search_fields = ['name', 'english_name']
     ordering = ['name']
-    filter_horizontal = ['complaint_categories']  # Nice UI for many-to-many fields
+    filter_horizontal = ['complaint_categories', 'branches']  # Nice UI for many-to-many fields
+    
+    def get_branches(self, obj):
+        """Display all branches this employee is assigned to"""
+        branches = obj.branches.all()
+        if branches:
+            return ', '.join([b.name for b in branches])
+        return '-'
+    get_branches.short_description = 'الفروع'
+
+
+@admin.register(Branch)
+class BranchAdmin(admin.ModelAdmin):
+    list_display = ['name', 'city', 'phone', 'is_active', 'attendance_radius', 'require_location', 'employee_count']
+    list_filter = ['is_active', 'require_location', 'city', 'created_at']
+    search_fields = ['name', 'address', 'city', 'phone']
+    ordering = ['name']
+    readonly_fields = ['created_at', 'updated_at', 'employee_count']
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('name', 'address', 'city', 'phone')
+        }),
+        ('GPS Location', {
+            'fields': ('latitude', 'longitude', 'attendance_radius', 'require_location'),
+            'description': 'GPS coordinates and attendance tracking settings'
+        }),
+        ('Status', {
+            'fields': ('is_active', 'notes')
+        }),
+        ('Metadata', {
+            'fields': ('created_at', 'updated_at', 'employee_count'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def employee_count(self, obj):
+        return obj.assigned_employees.filter(status='active').count()
+    employee_count.short_description = 'Active Employees'
+
+
+@admin.register(EmployeeBranch)
+class EmployeeBranchAdmin(admin.ModelAdmin):
+    list_display = ['employee', 'branch', 'get_working_days_count', 'is_active', 'assigned_date']
+    list_filter = ['is_active', 'branch', 'assigned_date']
+    search_fields = ['employee__name', 'branch__name']
+    ordering = ['employee', 'branch']
+    readonly_fields = ['created_at', 'updated_at']
+    
+    fieldsets = (
+        ('Assignment', {
+            'fields': ('employee', 'branch', 'is_active', 'assigned_date')
+        }),
+        ('Notes', {
+            'fields': ('notes',)
+        }),
+        ('Metadata', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def get_working_days_count(self, obj):
+        """Count number of working days in weekly schedule"""
+        return obj.daily_schedules.filter(is_working_day=True).count()
+    get_working_days_count.short_description = 'Working Days'
+
+
+@admin.register(DailySchedule)
+class DailyScheduleAdmin(admin.ModelAdmin):
+    list_display = ['employee_branch', 'get_day_name', 'is_working_day', 'shift_start_time', 'shift_end_time', 'is_remote_work']
+    list_filter = ['is_working_day', 'is_remote_work', 'day_of_week', 'employee_branch__branch']
+    search_fields = ['employee_branch__employee__name', 'employee_branch__branch__name']
+    ordering = ['employee_branch', 'day_of_week']
+    readonly_fields = ['created_at', 'updated_at']
+    
+    fieldsets = (
+        ('Schedule Info', {
+            'fields': ('employee_branch', 'day_of_week', 'is_working_day')
+        }),
+        ('Work Hours', {
+            'fields': ('shift_start_time', 'shift_end_time'),
+            'description': 'Only applicable for working days'
+        }),
+        ('Remote Work', {
+            'fields': ('is_remote_work',),
+            'description': 'Can employee work remotely on this day?'
+        }),
+        ('Notes', {
+            'fields': ('notes',)
+        }),
+        ('Metadata', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
+    
+    def get_day_name(self, obj):
+        """Get Arabic day name"""
+        return dict(DailySchedule.DAY_CHOICES)[obj.day_of_week]
+    get_day_name.short_description = 'Day'
+
 
 @admin.register(EmployeeDocument)
 class EmployeeDocumentAdmin(admin.ModelAdmin):

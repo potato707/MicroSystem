@@ -131,6 +131,268 @@ class GlobalClient(models.Model):
         return f"{self.name} ({self.email})"
 
 
+class Branch(models.Model):
+    """
+    Company branches for multi-location attendance tracking
+    Each branch has its own location and attendance radius
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=200, verbose_name='اسم الفرع')
+    address = models.TextField(verbose_name='العنوان')
+    city = models.CharField(max_length=100, verbose_name='المدينة', blank=True)
+    phone = models.CharField(max_length=20, verbose_name='الهاتف', blank=True)
+    
+    # GPS Location for attendance tracking
+    latitude = models.DecimalField(
+        max_digits=10, 
+        decimal_places=8, 
+        verbose_name='خط العرض',
+        help_text='خط العرض GPS للفرع'
+    )
+    longitude = models.DecimalField(
+        max_digits=11, 
+        decimal_places=8, 
+        verbose_name='خط الطول',
+        help_text='خط الطول GPS للفرع'
+    )
+    
+    # Attendance radius in meters (default 100m = ~328 feet)
+    attendance_radius = models.IntegerField(
+        default=100,
+        validators=[MinValueValidator(10), MaxValueValidator(5000)],
+        verbose_name='نطاق التسجيل (متر)',
+        help_text='المسافة المسموح بها للتسجيل من موقع الفرع (بالمتر)'
+    )
+    
+    # Branch settings
+    is_active = models.BooleanField(default=True, verbose_name='نشط')
+    require_location = models.BooleanField(
+        default=True, 
+        verbose_name='يتطلب التحقق من الموقع',
+        help_text='هل يجب على الموظفين أن يكونوا في نطاق الفرع للتسجيل؟'
+    )
+    
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='تاريخ الإنشاء')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='آخر تحديث')
+    notes = models.TextField(blank=True, verbose_name='ملاحظات')
+    
+    class Meta:
+        verbose_name = 'فرع'
+        verbose_name_plural = 'الفروع'
+        ordering = ['name']
+    
+    def __str__(self):
+        return f"{self.name} - {self.city}" if self.city else self.name
+    
+    def calculate_distance(self, latitude, longitude):
+        """
+        Calculate distance in meters between branch location and given coordinates
+        Uses Haversine formula for accuracy
+        """
+        from math import radians, sin, cos, sqrt, atan2
+        
+        # Earth radius in meters
+        R = 6371000
+        
+        lat1 = radians(float(self.latitude))
+        lon1 = radians(float(self.longitude))
+        lat2 = radians(float(latitude))
+        lon2 = radians(float(longitude))
+        
+        dlat = lat2 - lat1
+        dlon = lon2 - lon1
+        
+        a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+        c = 2 * atan2(sqrt(a), sqrt(1-a))
+        
+        distance = R * c
+        return distance
+    
+    def is_within_radius(self, latitude, longitude):
+        """
+        Check if given coordinates are within the branch's attendance radius
+        Returns (is_within: bool, distance: float)
+        """
+        if not self.require_location:
+            return True, 0
+        
+        distance = self.calculate_distance(latitude, longitude)
+        return distance <= self.attendance_radius, distance
+
+
+class EmployeeBranch(models.Model):
+    """
+    Many-to-Many relationship between Employee and Branch with additional details
+    Allows an employee to work in multiple branches with different schedules
+    Each day has its own schedule defined in DailySchedule model
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    employee = models.ForeignKey(
+        'Employee',
+        on_delete=models.CASCADE,
+        related_name='employee_branches',
+        verbose_name='الموظف'
+    )
+    branch = models.ForeignKey(
+        Branch,
+        on_delete=models.CASCADE,
+        related_name='branch_employees',
+        verbose_name='الفرع'
+    )
+    
+    # Status
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='نشط',
+        help_text='هل هذا التعيين نشط حالياً؟'
+    )
+    
+    # Metadata
+    assigned_date = models.DateField(
+        default=date.today,
+        verbose_name='تاريخ التعيين',
+        help_text='تاريخ تعيين الموظف في هذا الفرع'
+    )
+    notes = models.TextField(blank=True, verbose_name='ملاحظات')
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='تاريخ الإنشاء')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='آخر تحديث')
+    
+    class Meta:
+        verbose_name = 'تعيين موظف في فرع'
+        verbose_name_plural = 'تعيينات الموظفين في الفروع'
+        ordering = ['employee', 'branch']
+        unique_together = ['employee', 'branch']
+    
+    def __str__(self):
+        return f"{self.employee.name} - {self.branch.name}"
+    
+    def is_working_day(self, day_of_week):
+        """
+        Check if the employee works on this day of week
+        day_of_week: 0=Sunday, 1=Monday, ..., 6=Saturday
+        """
+        schedule = self.get_schedule_for_day(day_of_week)
+        return schedule and schedule.is_working_day
+    
+    def get_schedule_for_day(self, day_of_week):
+        """
+        Get the daily schedule for a specific day of week
+        Returns DailySchedule object or None
+        """
+        return self.daily_schedules.filter(day_of_week=day_of_week).first()
+    
+    def get_weekly_schedule(self):
+        """
+        Get all daily schedules for the week (7 days)
+        Returns QuerySet of DailySchedule objects
+        """
+        return self.daily_schedules.all().order_by('day_of_week')
+
+
+class DailySchedule(models.Model):
+    """
+    Daily work schedule for each day of the week for an employee in a specific branch
+    Allows different start/end times and settings for each day
+    """
+    DAY_CHOICES = [
+        (0, 'الأحد'),      # Sunday
+        (1, 'الاثنين'),    # Monday
+        (2, 'الثلاثاء'),   # Tuesday
+        (3, 'الأربعاء'),   # Wednesday
+        (4, 'الخميس'),     # Thursday
+        (5, 'الجمعة'),     # Friday
+        (6, 'السبت'),      # Saturday
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    employee_branch = models.ForeignKey(
+        EmployeeBranch,
+        on_delete=models.CASCADE,
+        related_name='daily_schedules',
+        verbose_name='تعيين الموظف في الفرع'
+    )
+    day_of_week = models.IntegerField(
+        choices=DAY_CHOICES,
+        verbose_name='يوم الأسبوع',
+        help_text='0=الأحد, 1=الاثنين, ..., 6=السبت'
+    )
+    
+    # Working day or day off
+    is_working_day = models.BooleanField(
+        default=True,
+        verbose_name='يوم عمل',
+        help_text='هل هذا يوم عمل أم يوم إجازة؟'
+    )
+    
+    # Shift times (only applicable if is_working_day = True)
+    shift_start_time = models.TimeField(
+        null=True,
+        blank=True,
+        verbose_name='وقت بداية الدوام',
+        help_text='وقت بداية الدوام في هذا اليوم'
+    )
+    shift_end_time = models.TimeField(
+        null=True,
+        blank=True,
+        verbose_name='وقت نهاية الدوام',
+        help_text='وقت نهاية الدوام في هذا اليوم'
+    )
+    
+    # Remote work setting
+    is_remote_work = models.BooleanField(
+        default=False,
+        verbose_name='عمل عن بعد',
+        help_text='هل يمكن للموظف العمل عن بعد في هذا اليوم؟ (True = يمكن العمل عن بعد، False = يجب الحضور للفرع)'
+    )
+    
+    # Additional notes
+    notes = models.TextField(
+        blank=True,
+        verbose_name='ملاحظات',
+        help_text='ملاحظات خاصة بهذا اليوم (اختياري)'
+    )
+    
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name='تاريخ الإنشاء')
+    updated_at = models.DateTimeField(auto_now=True, verbose_name='آخر تحديث')
+    
+    class Meta:
+        verbose_name = 'جدول يومي'
+        verbose_name_plural = 'الجداول اليومية'
+        ordering = ['employee_branch', 'day_of_week']
+        unique_together = ['employee_branch', 'day_of_week']
+        indexes = [
+            models.Index(fields=['employee_branch', 'day_of_week']),
+            models.Index(fields=['is_working_day']),
+        ]
+    
+    def __str__(self):
+        day_name = dict(self.DAY_CHOICES)[self.day_of_week]
+        status = "عمل" if self.is_working_day else "إجازة"
+        return f"{self.employee_branch} - {day_name} ({status})"
+    
+    def clean(self):
+        """Validate that working days have shift times"""
+        if self.is_working_day:
+            if not self.shift_start_time or not self.shift_end_time:
+                raise ValidationError(
+                    'يجب تحديد وقت بداية ونهاية الدوام لأيام العمل'
+                )
+            if self.shift_start_time >= self.shift_end_time:
+                raise ValidationError(
+                    'وقت بداية الدوام يجب أن يكون قبل وقت نهاية الدوام'
+                )
+        else:
+            # Clear shift times for days off
+            self.shift_start_time = None
+            self.shift_end_time = None
+    
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
+
 class Employee(models.Model):
     EMPLOYMENT_STATUS = [
         ('active', 'نشط'),
@@ -145,6 +407,28 @@ class Employee(models.Model):
     name = models.CharField(max_length=200, verbose_name='الاسم')
     position = models.CharField(max_length=100, verbose_name='الوظيفة')
     department = models.CharField(max_length=100, verbose_name='القسم')
+    
+    # Branch assignments - Many-to-Many relationship through EmployeeBranch
+    branches = models.ManyToManyField(
+        Branch,
+        through='EmployeeBranch',
+        related_name='assigned_employees',
+        verbose_name='الفروع',
+        help_text='الفروع التي يعمل فيها الموظف',
+        blank=True
+    )
+    
+    # Legacy single branch field (kept for backward compatibility, will be deprecated)
+    branch = models.ForeignKey(
+        Branch, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        related_name='legacy_employees',
+        verbose_name='الفرع (قديم)',
+        help_text='حقل قديم - استخدم علاقة branches بدلاً منه'
+    )
+    
     hire_date = models.DateField(verbose_name='تاريخ التعيين')
     salary = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='الراتب الأساسي')
     overtime_rate = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='المعدل المتوسط للوقت الإضافي', default=0.0)
@@ -241,17 +525,37 @@ class WorkShift(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     employee = models.ForeignKey(Employee, on_delete=models.CASCADE, related_name='work_shifts', verbose_name="الموظف")
     attendance = models.ForeignKey(EmployeeAttendance, on_delete=models.CASCADE, related_name='shifts', verbose_name="سجل الحضور")
+    
+    # Branch tracking - which branch was this shift at
+    branch = models.ForeignKey(
+        Branch,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='work_shifts',
+        verbose_name='الفرع',
+        help_text='الفرع الذي تم فيه تسجيل الحضور'
+    )
+    
     shift_type = models.CharField(max_length=20, choices=SHIFT_TYPE_CHOICES, default='regular', verbose_name="نوع الوردية")
     check_in = models.DateTimeField(verbose_name="وقت بداية الوردية")
     check_out = models.DateTimeField(null=True, blank=True, verbose_name="وقت نهاية الوردية")
     break_start = models.DateTimeField(null=True, blank=True, verbose_name="بداية الاستراحة")
     break_end = models.DateTimeField(null=True, blank=True, verbose_name="نهاية الاستراحة")
     location = models.CharField(max_length=100, blank=True, null=True, verbose_name="موقع العمل")
+    
     # GPS coordinates for location tracking
     checkin_latitude = models.DecimalField(max_digits=10, decimal_places=8, null=True, blank=True, verbose_name="خط عرض الدخول")
     checkin_longitude = models.DecimalField(max_digits=11, decimal_places=8, null=True, blank=True, verbose_name="خط طول الدخول")
     checkout_latitude = models.DecimalField(max_digits=10, decimal_places=8, null=True, blank=True, verbose_name="خط عرض الخروج")
     checkout_longitude = models.DecimalField(max_digits=11, decimal_places=8, null=True, blank=True, verbose_name="خط طول الخروج")
+    
+    # Location validation results
+    checkin_distance = models.FloatField(null=True, blank=True, verbose_name='مسافة تسجيل الدخول (متر)', help_text='المسافة من موقع الفرع عند تسجيل الدخول')
+    checkout_distance = models.FloatField(null=True, blank=True, verbose_name='مسافة تسجيل الخروج (متر)', help_text='المسافة من موقع الفرع عند تسجيل الخروج')
+    checkin_within_radius = models.BooleanField(null=True, blank=True, verbose_name='داخل نطاق الدخول')
+    checkout_within_radius = models.BooleanField(null=True, blank=True, verbose_name='داخل نطاق الخروج')
+    
     notes = models.TextField(blank=True, null=True, verbose_name="ملاحظات")
     is_active = models.BooleanField(default=True, verbose_name="الوردية نشطة")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -311,6 +615,16 @@ class LeaveRequest(models.Model):
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     employee = models.ForeignKey('Employee', on_delete=models.CASCADE, verbose_name="الموظف")
+    
+    # Branches affected by this leave request (Many-to-Many)
+    branches = models.ManyToManyField(
+        Branch,
+        related_name='leave_requests',
+        verbose_name='الفروع المتأثرة',
+        help_text='الفروع التي ستتأثر بهذه الإجازة',
+        blank=True
+    )
+    
     start_date = models.DateField(verbose_name="تاريخ البداية")
     end_date = models.DateField(verbose_name="تاريخ النهاية")
     reason = models.TextField(verbose_name="سبب الإجازة")

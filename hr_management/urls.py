@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from .tenant_creator_view import tenant_creator_view
 from .views import (
+    BranchViewSet, EmployeeBranchViewSet, DailyScheduleViewSet,  # Branch, EmployeeBranch and DailySchedule management
     EmployeeViewSet, EmployeeDocumentViewSet, EmployeeNoteViewSet, EmployeeAttendanceListCreateView, 
     EmployeeAttendanceDetailView, CheckInView, CheckOutView, WorkShiftViewSet, ShiftCheckInView, 
     ShiftCheckOutView, ShiftBreakView, LeaveRequestCreateView, LeaveRequestUpdateStatusView, 
@@ -60,6 +61,9 @@ from .client_dashboard_views import (
 
 
 router = DefaultRouter()
+router.register(r'branches', BranchViewSet, basename='branch')  # Branch management
+router.register(r'employee-branches', EmployeeBranchViewSet, basename='employee-branch')  # Employee-Branch assignments
+router.register(r'daily-schedules', DailyScheduleViewSet, basename='daily-schedule')  # Daily schedules for employee-branch assignments
 router.register(r'employees', EmployeeViewSet)
 router.register(r'documents', EmployeeDocumentViewSet)
 router.register(r'notes', EmployeeNoteViewSet)

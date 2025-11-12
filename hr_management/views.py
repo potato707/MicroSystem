@@ -15,6 +15,7 @@ from rest_framework.response import Response
 from rest_framework import status as rest_status  # Explicit import to avoid conflicts
 from .custom_permissions import IsEmployer, IsAdminOrComplaintAdmin, HasModuleAccess
 from .models import (
+    Branch, EmployeeBranch, DailySchedule,  # Branch, EmployeeBranch and DailySchedule models
     Employee, EmployeeDocument, EmployeeNote, EmployeeAttendance, WorkShift, 
     LeaveRequest, Complaint, ComplaintReply, ComplaintAttachment, Wallet, WalletTransaction, 
     ReimbursementRequest, Task, Subtask, TaskReport, TaskComment, Team, TeamMembership, 
@@ -36,6 +37,7 @@ from .models import (
     get_employee_shift_for_date, get_employees_on_shift_now, calculate_weekly_hours
 )
 from .serializers import (
+    BranchSerializer, EmployeeBranchSerializer, DailyScheduleSerializer,  # Branch, EmployeeBranch and DailySchedule serializers
     EmployeeSerializer, EmployeeDocumentSerializer, EmployeeNoteSerializer, 
     EmployeeAttendanceSerializer, WorkShiftSerializer, LeaveRequestSerializer, 
     LeaveRequestReviewSerializer, ComplaintSerializer, ComplaintReplySerializer, 
@@ -69,6 +71,361 @@ class StandardResultsSetPagination(PageNumberPagination):
     page_size = 10
     page_size_query_param = 'page_size'
     max_page_size = 100
+
+
+class BranchViewSet(viewsets.ModelViewSet):
+    """Branch management - multi-location support"""
+    module_key = 'employees'  # Require employees module access
+    queryset = Branch.objects.all()
+    serializer_class = BranchSerializer
+    pagination_class = StandardResultsSetPagination
+
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsEmployer()]
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        queryset = Branch.objects.all()
+        
+        # Filter by active status
+        is_active = self.request.query_params.get('is_active')
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active.lower() == 'true')
+        
+        # Filter by city
+        city = self.request.query_params.get('city')
+        if city:
+            queryset = queryset.filter(city__icontains=city)
+        
+        # Search by name
+        search = self.request.query_params.get('search')
+        if search:
+            queryset = queryset.filter(
+                Q(name__icontains=search) | 
+                Q(address__icontains=search) |
+                Q(city__icontains=search)
+            )
+        
+        return queryset.order_by('name')
+
+    @action(detail=True, methods=['get'])
+    def employees(self, request, pk=None):
+        """Get all employees assigned to this branch"""
+        branch = self.get_object()
+        employees = branch.employees.filter(status='active')
+        
+        # Optional: Filter by department
+        department = request.query_params.get('department')
+        if department:
+            employees = employees.filter(department__icontains=department)
+        
+        serializer = EmployeeSerializer(employees, many=True, context={'request': request})
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def validate_location(self, request, pk=None):
+        """Validate if given coordinates are within branch radius"""
+        branch = self.get_object()
+        
+        latitude = request.data.get('latitude')
+        longitude = request.data.get('longitude')
+        
+        if not latitude or not longitude:
+            return Response(
+                {'error': 'يجب توفير latitude و longitude'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            latitude = float(latitude)
+            longitude = float(longitude)
+        except (ValueError, TypeError):
+            return Response(
+                {'error': 'إحداثيات GPS غير صالحة'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        is_within, distance = branch.is_within_radius(latitude, longitude)
+        
+        return Response({
+            'branch_id': str(branch.id),
+            'branch_name': branch.name,
+            'distance_meters': round(distance, 2),
+            'within_radius': is_within,
+            'attendance_radius': branch.attendance_radius,
+            'require_location': branch.require_location,
+            'can_check_in': is_within or not branch.require_location
+        })
+
+    @action(detail=False, methods=['get'])
+    def nearby(self, request):
+        """Find branches near given coordinates"""
+        latitude = request.query_params.get('latitude')
+        longitude = request.query_params.get('longitude')
+        max_distance = request.query_params.get('max_distance', 5000)  # Default 5km
+        
+        if not latitude or not longitude:
+            return Response(
+                {'error': 'يجب توفير latitude و longitude'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            latitude = float(latitude)
+            longitude = float(longitude)
+            max_distance = float(max_distance)
+        except (ValueError, TypeError):
+            return Response(
+                {'error': 'معاملات غير صالحة'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        branches = Branch.objects.filter(is_active=True)
+        nearby_branches = []
+        
+        for branch in branches:
+            distance = branch.calculate_distance(latitude, longitude)
+            if distance <= max_distance:
+                is_within, _ = branch.is_within_radius(latitude, longitude)
+                nearby_branches.append({
+                    'branch': BranchSerializer(branch, context={'request': request}).data,
+                    'distance_meters': round(distance, 2),
+                    'within_attendance_radius': is_within
+                })
+        
+        # Sort by distance
+        nearby_branches.sort(key=lambda x: x['distance_meters'])
+        
+        return Response(nearby_branches)
+
+
+class EmployeeBranchViewSet(viewsets.ModelViewSet):
+    """
+    Employee-Branch Assignment management
+    Allows assigning employees to branches with specific schedules
+    """
+    module_key = 'employees'
+    queryset = EmployeeBranch.objects.all()
+    serializer_class = EmployeeBranchSerializer
+    pagination_class = StandardResultsSetPagination
+
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsEmployer()]
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        queryset = EmployeeBranch.objects.select_related('employee', 'branch').all()
+        
+        # Filter by employee
+        employee_id = self.request.query_params.get('employee_id')
+        if employee_id:
+            queryset = queryset.filter(employee_id=employee_id)
+        
+        # Filter by branch
+        branch_id = self.request.query_params.get('branch_id')
+        if branch_id:
+            queryset = queryset.filter(branch_id=branch_id)
+        
+        # Filter by active status
+        is_active = self.request.query_params.get('is_active')
+        if is_active is not None:
+            queryset = queryset.filter(is_active=is_active.lower() == 'true')
+        
+        return queryset.order_by('employee__name', 'branch__name')
+
+    @action(detail=False, methods=['get'])
+    def by_employee(self, request):
+        """Get all branch assignments for a specific employee"""
+        employee_id = request.query_params.get('employee_id')
+        if not employee_id:
+            return Response(
+                {'error': 'employee_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        assignments = self.get_queryset().filter(employee_id=employee_id, is_active=True)
+        serializer = self.get_serializer(assignments, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def by_branch(self, request):
+        """Get all employee assignments for a specific branch"""
+        branch_id = request.query_params.get('branch_id')
+        if not branch_id:
+            return Response(
+                {'error': 'branch_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        assignments = self.get_queryset().filter(branch_id=branch_id, is_active=True)
+        serializer = self.get_serializer(assignments, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def toggle_active(self, request, pk=None):
+        """Toggle active status of an assignment"""
+        assignment = self.get_object()
+        assignment.is_active = not assignment.is_active
+        assignment.save()
+        serializer = self.get_serializer(assignment)
+        return Response(serializer.data)
+    
+    def create(self, request, *args, **kwargs):
+        """Create employee-branch assignment with default 7-day schedule"""
+        response = super().create(request, *args, **kwargs)
+        
+        # Create default daily schedules for all 7 days
+        assignment_id = response.data['id']
+        assignment = EmployeeBranch.objects.get(id=assignment_id)
+        
+        # Default schedule: Sunday-Thursday (work days), Friday-Saturday (off)
+        for day in range(7):
+            is_working = day not in [5, 6]  # Friday=5, Saturday=6 are off
+            DailySchedule.objects.create(
+                employee_branch=assignment,
+                day_of_week=day,
+                is_working_day=is_working,
+                shift_start_time='09:00' if is_working else None,
+                shift_end_time='17:00' if is_working else None,
+                is_remote_work=False
+            )
+        
+        # Return updated assignment with schedules
+        serializer = self.get_serializer(assignment)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+
+class DailyScheduleViewSet(viewsets.ModelViewSet):
+    """
+    Daily Schedule management for employee-branch assignments
+    Manages individual day schedules with different times and settings
+    """
+    module_key = 'employees'
+    queryset = DailySchedule.objects.all()
+    serializer_class = DailyScheduleSerializer
+    pagination_class = StandardResultsSetPagination
+
+    def get_permissions(self):
+        if self.action in ['create', 'update', 'partial_update', 'destroy']:
+            return [IsEmployer()]
+        return [IsAuthenticated()]
+
+    def get_queryset(self):
+        queryset = DailySchedule.objects.select_related(
+            'employee_branch__employee',
+            'employee_branch__branch'
+        ).all()
+        
+        # Filter by employee_branch
+        employee_branch_id = self.request.query_params.get('employee_branch_id')
+        if employee_branch_id:
+            queryset = queryset.filter(employee_branch_id=employee_branch_id)
+        
+        # Filter by employee
+        employee_id = self.request.query_params.get('employee_id')
+        if employee_id:
+            queryset = queryset.filter(employee_branch__employee_id=employee_id)
+        
+        # Filter by branch
+        branch_id = self.request.query_params.get('branch_id')
+        if branch_id:
+            queryset = queryset.filter(employee_branch__branch_id=branch_id)
+        
+        # Filter by day of week
+        day_of_week = self.request.query_params.get('day_of_week')
+        if day_of_week is not None:
+            queryset = queryset.filter(day_of_week=int(day_of_week))
+        
+        # Filter by working day
+        is_working_day = self.request.query_params.get('is_working_day')
+        if is_working_day is not None:
+            queryset = queryset.filter(is_working_day=is_working_day.lower() == 'true')
+        
+        return queryset.order_by('employee_branch', 'day_of_week')
+
+    @action(detail=False, methods=['get'])
+    def for_employee_branch(self, request):
+        """Get all 7 daily schedules for a specific employee-branch assignment"""
+        employee_branch_id = request.query_params.get('employee_branch_id')
+        if not employee_branch_id:
+            return Response(
+                {'error': 'employee_branch_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        schedules = self.get_queryset().filter(employee_branch_id=employee_branch_id).order_by('day_of_week')
+        serializer = self.get_serializer(schedules, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def for_employee_today(self, request):
+        """Get today's schedule for an employee across all their branches"""
+        employee_id = request.query_params.get('employee_id')
+        if not employee_id:
+            return Response(
+                {'error': 'employee_id is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        from datetime import datetime
+        today = datetime.now().weekday()
+        # Convert Python weekday (0=Monday) to our system (0=Sunday)
+        day_of_week = (today + 1) % 7
+        
+        schedules = self.get_queryset().filter(
+            employee_branch__employee_id=employee_id,
+            employee_branch__is_active=True,
+            day_of_week=day_of_week,
+            is_working_day=True
+        )
+        
+        serializer = self.get_serializer(schedules, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['post'])
+    def bulk_update(self, request):
+        """Bulk update all 7 days for an employee-branch assignment"""
+        employee_branch_id = request.data.get('employee_branch_id')
+        schedules_data = request.data.get('schedules', [])
+        
+        if not employee_branch_id or not schedules_data:
+            return Response(
+                {'error': 'employee_branch_id and schedules are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        updated_schedules = []
+        for schedule_data in schedules_data:
+            day_of_week = schedule_data.get('day_of_week')
+            if day_of_week is None:
+                continue
+            
+            schedule, created = DailySchedule.objects.get_or_create(
+                employee_branch_id=employee_branch_id,
+                day_of_week=day_of_week
+            )
+            
+            # Update fields
+            schedule.is_working_day = schedule_data.get('is_working_day', True)
+            schedule.shift_start_time = schedule_data.get('shift_start_time')
+            schedule.shift_end_time = schedule_data.get('shift_end_time')
+            schedule.is_remote_work = schedule_data.get('is_remote_work', False)
+            schedule.notes = schedule_data.get('notes', '')
+            
+            try:
+                schedule.save()
+                updated_schedules.append(schedule)
+            except ValidationError as e:
+                return Response(
+                    {'error': str(e)},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        serializer = self.get_serializer(updated_schedules, many=True)
+        return Response(serializer.data)
+
 
 class EmployeeViewSet(viewsets.ModelViewSet):
     """Employee management - requires 'employees' module"""
@@ -206,16 +563,23 @@ class EmployeeDashboardStatsView(APIView):
             
             # If not a day off, check if there's a scheduled shift for today
             if attendance_status != 'day_off':
-                try:
-                    shift_schedule = WeeklyShiftSchedule.objects.get(
-                        employee=employee,
-                        day_of_week=our_day_of_week,
-                        is_active=True
-                    )
+                # First check NEW multi-branch system (DailySchedule)
+                daily_schedules = DailySchedule.objects.filter(
+                    employee_branch__employee=employee,
+                    employee_branch__is_active=True,
+                    day_of_week=our_day_of_week,
+                    is_working_day=True
+                )
+                
+                if daily_schedules.exists():
+                    # Employee has at least one working schedule today in new system
+                    # Get the earliest shift start time from all branches
+                    earliest_schedule = daily_schedules.filter(
+                        shift_start_time__isnull=False
+                    ).order_by('shift_start_time').first()
                     
-                    # There is a scheduled shift for today
-                    if has_checked_in and latest_shift:
-                        expected_start = shift_schedule.start_time
+                    if earliest_schedule and has_checked_in and latest_shift:
+                        expected_start = earliest_schedule.shift_start_time
                         if isinstance(expected_start, str):
                             import datetime as dt
                             expected_start = dt.datetime.strptime(expected_start, '%H:%M:%S').time() if len(expected_start) > 5 else dt.datetime.strptime(expected_start, '%H:%M').time()
@@ -232,18 +596,58 @@ class EmployeeDashboardStatsView(APIView):
                             attendance_status = 'late'
                         else:
                             attendance_status = 'present'
-                    else:
-                        # Shift scheduled but hasn't checked in yet
-                        attendance_status = 'absent'
-                
-                except WeeklyShiftSchedule.DoesNotExist:
-                    # No schedule defined for this day of the week - it's a weekly day off
-                    if has_checked_in:
-                        # They checked in on their day off
+                    elif earliest_schedule and has_checked_in:
+                        # Has schedule and checked in (even without shift start time)
                         attendance_status = 'present'
+                    elif earliest_schedule:
+                        # Has schedule but hasn't checked in yet
+                        attendance_status = 'absent'
                     else:
-                        # No shift scheduled for this day - it's their weekly day off
-                        attendance_status = 'day_off'
+                        # Has working day schedule but no shift times defined
+                        if has_checked_in:
+                            attendance_status = 'present'
+                        else:
+                            attendance_status = 'absent'
+                else:
+                    # Fallback to OLD system (WeeklyShiftSchedule) for backward compatibility
+                    try:
+                        shift_schedule = WeeklyShiftSchedule.objects.get(
+                            employee=employee,
+                            day_of_week=our_day_of_week,
+                            is_active=True
+                        )
+                        
+                        # There is a scheduled shift for today
+                        if has_checked_in and latest_shift:
+                            expected_start = shift_schedule.start_time
+                            if isinstance(expected_start, str):
+                                import datetime as dt
+                                expected_start = dt.datetime.strptime(expected_start, '%H:%M:%S').time() if len(expected_start) > 5 else dt.datetime.strptime(expected_start, '%H:%M').time()
+                            
+                            # Compare check-in time with expected start time (grace period: 15 minutes)
+                            check_in_time = latest_shift.check_in.time()
+                            expected_start_dt = timezone.datetime.combine(today, expected_start)
+                            check_in_dt = timezone.datetime.combine(today, check_in_time)
+                            grace_period = timezone.timedelta(minutes=15)
+                            
+                            if check_in_dt > (expected_start_dt + grace_period):
+                                is_late = True
+                                late_minutes = int((check_in_dt - expected_start_dt).total_seconds() / 60)
+                                attendance_status = 'late'
+                            else:
+                                attendance_status = 'present'
+                        else:
+                            # Shift scheduled but hasn't checked in yet
+                            attendance_status = 'absent'
+                    
+                    except WeeklyShiftSchedule.DoesNotExist:
+                        # No schedule defined in either system - it's a weekly day off
+                        if has_checked_in:
+                            # They checked in on their day off
+                            attendance_status = 'present'
+                        else:
+                            # No shift scheduled for this day - it's their weekly day off
+                            attendance_status = 'day_off'
             
             # Get wallet system balances (new multi-wallet system) 
             try:
@@ -637,45 +1041,63 @@ class ShiftCheckInView(APIView):
         user_latitude = request.data.get('latitude')
         user_longitude = request.data.get('longitude')
         
-        if not user_latitude or not user_longitude:
-            return Response({
-                'error': 'GPS coordinates are required for check-in'
-            }, status=400)
+        # Check if employee is working remotely today
+        today = system_now().date()
+        day_of_week = today.weekday()
+        our_day_of_week = (day_of_week + 1) % 7  # Convert to Sunday=0
         
-        # Validate location against office location
-        office_location = OfficeLocation.get_active_location()
-        if office_location:
-            # Log coordinates for debugging
-            print(f"Check-in attempt by {employee.name}")
-            print(f"User coordinates: ({user_latitude}, {user_longitude})")
-            print(f"Office coordinates: ({office_location.latitude}, {office_location.longitude})")
-            print(f"Allowed radius: {office_location.radius_meters}m")
-            
-            distance = calculate_distance(
-                user_latitude, user_longitude,
-                office_location.latitude, office_location.longitude
-            )
-            
-            print(f"Calculated distance: {distance:.2f}m")
-            
-            # Round distance to avoid floating point precision issues
-            distance = round(distance, 2)
-            
-            if distance > office_location.radius_meters:
+        # Check if ANY of employee's active branches allow remote work today
+        is_remote_today = DailySchedule.objects.filter(
+            employee_branch__employee=employee,
+            employee_branch__is_active=True,
+            day_of_week=our_day_of_week,
+            is_working_day=True,
+            is_remote_work=True
+        ).exists()
+        
+        # Only require GPS if NOT working remotely
+        if not is_remote_today:
+            if not user_latitude or not user_longitude:
                 return Response({
-                    'error': f'You are too far from the office. Distance: {int(distance)}m, Required: within {office_location.radius_meters}m',
-                    'distance_meters': int(distance),
-                    'required_radius': office_location.radius_meters,
-                    'user_location': {
-                        'latitude': float(user_latitude),
-                        'longitude': float(user_longitude)
-                    },
-                    'office_location': {
-                        'latitude': float(office_location.latitude),
-                        'longitude': float(office_location.longitude),
-                        'name': office_location.name
-                    }
+                    'error': 'GPS coordinates are required for check-in'
                 }, status=400)
+            
+            # Validate location against office location
+            office_location = OfficeLocation.get_active_location()
+            if office_location:
+                # Log coordinates for debugging
+                print(f"Check-in attempt by {employee.name}")
+                print(f"User coordinates: ({user_latitude}, {user_longitude})")
+                print(f"Office coordinates: ({office_location.latitude}, {office_location.longitude})")
+                print(f"Allowed radius: {office_location.radius_meters}m")
+                
+                distance = calculate_distance(
+                    user_latitude, user_longitude,
+                    office_location.latitude, office_location.longitude
+                )
+                
+                print(f"Calculated distance: {distance:.2f}m")
+                
+                # Round distance to avoid floating point precision issues
+                distance = round(distance, 2)
+                
+                if distance > office_location.radius_meters:
+                    return Response({
+                        'error': f'You are too far from the office. Distance: {int(distance)}m, Required: within {office_location.radius_meters}m',
+                        'distance_meters': int(distance),
+                        'required_radius': office_location.radius_meters,
+                        'user_location': {
+                            'latitude': float(user_latitude),
+                            'longitude': float(user_longitude)
+                        },
+                        'office_location': {
+                            'latitude': float(office_location.latitude),
+                            'longitude': float(office_location.longitude),
+                            'name': office_location.name
+                        }
+                    }, status=400)
+        else:
+            print(f"Remote check-in by {employee.name} - GPS validation skipped")
         
         # Check for active shifts
         active_shifts = WorkShift.objects.filter(
@@ -692,7 +1114,6 @@ class ShiftCheckInView(APIView):
         
         # Create new shift
         now = system_now()
-        today = now.date()
         
         # Get or create attendance record
         attendance, created = EmployeeAttendance.objects.get_or_create(
@@ -701,16 +1122,16 @@ class ShiftCheckInView(APIView):
             defaults={'status': 'present'}
         )
         
-        # Create shift with GPS coordinates
+        # Create shift with GPS coordinates (optional for remote work)
         shift_data = {
             'employee': employee,
             'attendance': attendance,
-            'shift_type': request.data.get('shift_type', 'regular'),
+            'shift_type': request.data.get('shift_type', 'remote' if is_remote_today else 'regular'),
             'check_in': now,
-            'location': request.data.get('location', ''),
-            'checkin_latitude': user_latitude,
-            'checkin_longitude': user_longitude,
-            'notes': request.data.get('notes', ''),
+            'location': request.data.get('location', 'Remote Work' if is_remote_today else ''),
+            'checkin_latitude': user_latitude if user_latitude else None,
+            'checkin_longitude': user_longitude if user_longitude else None,
+            'notes': request.data.get('notes', 'Remote work' if is_remote_today else ''),
             'is_active': True
         }
         
@@ -736,45 +1157,63 @@ class ShiftCheckOutView(APIView):
         user_latitude = request.data.get('latitude')
         user_longitude = request.data.get('longitude')
         
-        if not user_latitude or not user_longitude:
-            return Response({
-                'error': 'GPS coordinates are required for check-out'
-            }, status=400)
+        # Check if employee is working remotely today
+        today = system_now().date()
+        day_of_week = today.weekday()
+        our_day_of_week = (day_of_week + 1) % 7  # Convert to Sunday=0
         
-        # Validate location against office location
-        office_location = OfficeLocation.get_active_location()
-        if office_location:
-            # Log coordinates for debugging
-            print(f"Check-out attempt by {employee.name}")
-            print(f"User coordinates: ({user_latitude}, {user_longitude})")
-            print(f"Office coordinates: ({office_location.latitude}, {office_location.longitude})")
-            print(f"Allowed radius: {office_location.radius_meters}m")
-            
-            distance = calculate_distance(
-                user_latitude, user_longitude,
-                office_location.latitude, office_location.longitude
-            )
-            
-            print(f"Calculated distance: {distance:.2f}m")
-            
-            # Round distance to avoid floating point precision issues
-            distance = round(distance, 2)
-            
-            if distance > office_location.radius_meters:
+        # Check if ANY of employee's active branches allow remote work today
+        is_remote_today = DailySchedule.objects.filter(
+            employee_branch__employee=employee,
+            employee_branch__is_active=True,
+            day_of_week=our_day_of_week,
+            is_working_day=True,
+            is_remote_work=True
+        ).exists()
+        
+        # Only require GPS if NOT working remotely
+        if not is_remote_today:
+            if not user_latitude or not user_longitude:
                 return Response({
-                    'error': f'You are too far from the office. Distance: {int(distance)}m, Required: within {office_location.radius_meters}m',
-                    'distance_meters': int(distance),
-                    'required_radius': office_location.radius_meters,
-                    'user_location': {
-                        'latitude': float(user_latitude),
-                        'longitude': float(user_longitude)
-                    },
-                    'office_location': {
-                        'latitude': float(office_location.latitude),
-                        'longitude': float(office_location.longitude),
-                        'name': office_location.name
-                    }
+                    'error': 'GPS coordinates are required for check-out'
                 }, status=400)
+            
+            # Validate location against office location
+            office_location = OfficeLocation.get_active_location()
+            if office_location:
+                # Log coordinates for debugging
+                print(f"Check-out attempt by {employee.name}")
+                print(f"User coordinates: ({user_latitude}, {user_longitude})")
+                print(f"Office coordinates: ({office_location.latitude}, {office_location.longitude})")
+                print(f"Allowed radius: {office_location.radius_meters}m")
+                
+                distance = calculate_distance(
+                    user_latitude, user_longitude,
+                    office_location.latitude, office_location.longitude
+                )
+                
+                print(f"Calculated distance: {distance:.2f}m")
+                
+                # Round distance to avoid floating point precision issues
+                distance = round(distance, 2)
+                
+                if distance > office_location.radius_meters:
+                    return Response({
+                        'error': f'You are too far from the office. Distance: {int(distance)}m, Required: within {office_location.radius_meters}m',
+                        'distance_meters': int(distance),
+                        'required_radius': office_location.radius_meters,
+                        'user_location': {
+                            'latitude': float(user_latitude),
+                            'longitude': float(user_longitude)
+                        },
+                        'office_location': {
+                            'latitude': float(office_location.latitude),
+                            'longitude': float(office_location.longitude),
+                            'name': office_location.name
+                        }
+                    }, status=400)
+        else:
+            print(f"Remote check-out by {employee.name} - GPS validation skipped")
         
         # Get shift to check out
         if shift_id:
@@ -924,23 +1363,55 @@ class LeaveRequestUpdateStatusView(generics.UpdateAPIView):
             end_date = leave_request.end_date
             employee = leave_request.employee
 
+            # Check if leave is for specific branches
+            specific_branches = leave_request.branches.all() if leave_request.branches.exists() else None
+
             current_date = start_date
             while current_date <= end_date:
-                attendance, created = EmployeeAttendance.objects.get_or_create(
-                    employee=employee,
-                    date=current_date,
-                    defaults={
-                        "status": "on_leave",
-                        "paid": is_paid
-                    }
-                )
-                if not created:
-                    # Update existing attendance record
-                    attendance.status = "on_leave"
-                    attendance.paid = is_paid
-                    attendance.check_in = None
-                    attendance.check_out = None
-                    attendance.save()
+                if specific_branches:
+                    # Mark on-leave only in specified branches
+                    for branch in specific_branches:
+                        # Get or create attendance for this specific employee-branch combination
+                        # This assumes you're tracking attendance per branch
+                        # If not, we'll mark the general attendance with branch info
+                        attendance, created = EmployeeAttendance.objects.get_or_create(
+                            employee=employee,
+                            date=current_date,
+                            defaults={
+                                "status": "on_leave",
+                                "paid": is_paid,
+                                # Store branch info in notes if no branch field exists
+                                "notes": f"إجازة في فرع: {branch.name}"
+                            }
+                        )
+                        if not created:
+                            # Update existing attendance record
+                            attendance.status = "on_leave"
+                            attendance.paid = is_paid
+                            attendance.check_in = None
+                            attendance.check_out = None
+                            if attendance.notes:
+                                attendance.notes += f" | إجازة في فرع: {branch.name}"
+                            else:
+                                attendance.notes = f"إجازة في فرع: {branch.name}"
+                            attendance.save()
+                else:
+                    # No specific branches - mark on-leave globally
+                    attendance, created = EmployeeAttendance.objects.get_or_create(
+                        employee=employee,
+                        date=current_date,
+                        defaults={
+                            "status": "on_leave",
+                            "paid": is_paid
+                        }
+                    )
+                    if not created:
+                        # Update existing attendance record
+                        attendance.status = "on_leave"
+                        attendance.paid = is_paid
+                        attendance.check_in = None
+                        attendance.check_out = None
+                        attendance.save()
                 
                 current_date += datetime.timedelta(days=1)
 

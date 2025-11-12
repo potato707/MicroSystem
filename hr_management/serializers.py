@@ -2,6 +2,7 @@ from rest_framework import serializers
 import datetime
 import calendar
 from .models import (
+    Branch, EmployeeBranch, DailySchedule,  # Branch, EmployeeBranch and DailySchedule models
     Employee, EmployeeDocument, EmployeeNote, EmployeeAttendance, WorkShift, User, 
     LeaveRequest, Complaint, ComplaintReply, ComplaintAttachment, EmployeeDocument, 
     Wallet, WalletTransaction, ReimbursementRequest, ReimbursementAttachment, 
@@ -22,6 +23,123 @@ from .models import (
     get_employee_shift_for_date, calculate_weekly_hours
 )
 from utils.timezone_utils import system_now
+
+
+class BranchSerializer(serializers.ModelSerializer):
+    """Serializer for Branch model - multi-location support"""
+    employee_count = serializers.SerializerMethodField()
+    distance_from_location = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Branch
+        fields = [
+            'id', 'name', 'address', 'city', 'phone',
+            'latitude', 'longitude', 'attendance_radius',
+            'is_active', 'require_location',
+            'created_at', 'updated_at', 'notes',
+            'employee_count', 'distance_from_location'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at', 'employee_count', 'distance_from_location']
+    
+    def get_employee_count(self, obj):
+        """Get number of employees assigned to this branch"""
+        return obj.assigned_employees.filter(status='active').count()
+    
+    def get_distance_from_location(self, obj):
+        """Calculate distance if current location provided in context"""
+        request = self.context.get('request')
+        if not request:
+            return None
+        
+        latitude = request.query_params.get('latitude')
+        longitude = request.query_params.get('longitude')
+        
+        if latitude and longitude:
+            try:
+                distance = obj.calculate_distance(float(latitude), float(longitude))
+                is_within, _ = obj.is_within_radius(float(latitude), float(longitude))
+                return {
+                    'distance_meters': round(distance, 2),
+                    'within_radius': is_within
+                }
+            except (ValueError, TypeError):
+                return None
+        return None
+
+
+class EmployeeBranchSerializer(serializers.ModelSerializer):
+    """Serializer for EmployeeBranch - manages employee-branch assignments with schedules"""
+    employee_name = serializers.CharField(source='employee.name', read_only=True)
+    branch_name = serializers.CharField(source='branch.name', read_only=True)
+    branch_city = serializers.CharField(source='branch.city', read_only=True)
+    daily_schedules = serializers.SerializerMethodField()
+    working_days_count = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = EmployeeBranch
+        fields = [
+            'id', 'employee', 'employee_name', 'branch', 'branch_name', 'branch_city',
+            'is_active', 'assigned_date', 'notes', 'created_at', 'updated_at',
+            'daily_schedules', 'working_days_count'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at', 'employee_name', 'branch_name', 'branch_city']
+    
+    def get_daily_schedules(self, obj):
+        """Get all 7 daily schedules for this assignment"""
+        schedules = obj.daily_schedules.all().order_by('day_of_week')
+        return DailyScheduleSerializer(schedules, many=True).data
+    
+    def get_working_days_count(self, obj):
+        """Count number of working days"""
+        return obj.daily_schedules.filter(is_working_day=True).count()
+
+
+class DailyScheduleSerializer(serializers.ModelSerializer):
+    """Serializer for DailySchedule - manages daily work schedules"""
+    day_name = serializers.SerializerMethodField()
+    employee_name = serializers.CharField(source='employee_branch.employee.name', read_only=True)
+    branch_name = serializers.CharField(source='employee_branch.branch.name', read_only=True)
+    
+    class Meta:
+        model = DailySchedule
+        fields = [
+            'id', 'employee_branch', 'employee_name', 'branch_name',
+            'day_of_week', 'day_name', 'is_working_day',
+            'shift_start_time', 'shift_end_time', 'is_remote_work',
+            'notes', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'updated_at', 'employee_name', 'branch_name', 'day_name']
+    
+    def get_day_name(self, obj):
+        """Get Arabic day name"""
+        day_names = {
+            0: 'الأحد',
+            1: 'الاثنين',
+            2: 'الثلاثاء',
+            3: 'الأربعاء',
+            4: 'الخميس',
+            5: 'الجمعة',
+            6: 'السبت'
+        }
+        return day_names.get(obj.day_of_week, '')
+    
+    def validate(self, data):
+        """Validate that working days have shift times"""
+        is_working_day = data.get('is_working_day', True)
+        shift_start = data.get('shift_start_time')
+        shift_end = data.get('shift_end_time')
+        
+        if is_working_day:
+            if not shift_start or not shift_end:
+                raise serializers.ValidationError({
+                    'shift_times': 'يجب تحديد وقت بداية ونهاية الدوام لأيام العمل'
+                })
+            if shift_start >= shift_end:
+                raise serializers.ValidationError({
+                    'shift_times': 'وقت بداية الدوام يجب أن يكون قبل وقت نهاية الدوام'
+                })
+        
+        return data
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -49,14 +167,24 @@ class EmployeeSerializer(serializers.ModelSerializer):
     role = serializers.CharField(source="user.role", )
     payroll_time_left = serializers.SerializerMethodField()
     attachments = EmployeeDocumentSerializer(many=True, read_only=True)
+    branch_name = serializers.CharField(source='branch.name', read_only=True)  # Legacy field
+    branch_city = serializers.CharField(source='branch.city', read_only=True)  # Legacy field
+    employee_branches = EmployeeBranchSerializer(many=True, read_only=True)
+    branch_names = serializers.SerializerMethodField()
 
     class Meta:
         model = Employee
         fields = [
             "id", "name", "position", "department", "hire_date",
             "salary", "status", "phone", "email", "address", "emergency_contact",
-            "profile_picture", "username", "password", "role", "payroll_time_left", "attachments"
+            "profile_picture", "username", "password", "role", "payroll_time_left", "attachments",
+            "branch", "branch_name", "branch_city",  # Legacy single branch fields
+            "employee_branches", "branch_names"  # New multi-branch fields
         ]
+    
+    def get_branch_names(self, obj):
+        """Get comma-separated list of all branch names"""
+        return ', '.join([eb.branch.name for eb in obj.employee_branches.filter(is_active=True)])
 
     def get_payroll_time_left(self, obj):
         now = system_now()
@@ -154,15 +282,21 @@ class WorkShiftSerializer(serializers.ModelSerializer):
 class LeaveRequestSerializer(serializers.ModelSerializer):
     employee_name = serializers.CharField(source="employee.name", read_only=True)
     reviewed_by_name = serializers.CharField(source="reviewed_by.name", read_only=True)
+    branch_names = serializers.SerializerMethodField()
 
     class Meta:
         model = LeaveRequest
         fields = [
-            "id", "employee", "employee_name", "start_date", "end_date", "reason", 
+            "id", "employee", "employee_name", "branches", "branch_names",
+            "start_date", "end_date", "reason", 
             "status", "is_paid", "admin_comment", "reviewed_by", "reviewed_by_name", 
             "reviewed_at", "created_at", "updated_at"
         ]
         read_only_fields = ["created_at", "updated_at", "employee", "reviewed_by", "reviewed_by_name", "reviewed_at"]
+    
+    def get_branch_names(self, obj):
+        """Get comma-separated branch names"""
+        return ', '.join([branch.name for branch in obj.branches.all()])
 
 
 class LeaveRequestReviewSerializer(serializers.ModelSerializer):
