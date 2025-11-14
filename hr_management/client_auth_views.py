@@ -396,6 +396,9 @@ class PasswordResetRequestView(APIView):
             # البحث في GlobalClient من main database
             client = GlobalClient.objects.using('default').get(email=email)
         except GlobalClient.DoesNotExist:
+            print(GlobalClient.objects.using('default').all())
+            print(email)
+            print("EMAIL DOESN'T EXIST?")
             # Return success even if user doesn't exist for security reasons
             return Response({
                 'message': 'If an account exists with this email, a password reset link has been sent.'
@@ -411,6 +414,7 @@ class PasswordResetRequestView(APIView):
         reset_url = f"{frontend_url}/client/reset-password/{uid}/{token}"
         
         # Send email
+        print("HELLO???")
         try:
             subject = "Password Reset Request - Complaint Management System"
             message = f"""
@@ -436,13 +440,13 @@ If you did not request a password reset, please ignore this message.
 
 This link will expire in 24 hours.
 """
-            send_mail(
+            print(send_mail(
                 subject,
                 message,
                 settings.DEFAULT_FROM_EMAIL,
                 [email],
                 fail_silently=False,
-            )
+            ))
         except Exception as e:
             return Response({
                 'error': 'Failed to send reset email. Please try again later.'

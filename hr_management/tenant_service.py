@@ -149,7 +149,8 @@ class TenantService:
             # Create tenant instance
             tenant = Tenant.objects.create(
                 name=tenant_data['name'],
-                subdomain=tenant_data['subdomain'],
+                subdomain=tenant_data.get('subdomain'),
+                domain_type=tenant_data.get('domain_type', 'subdomain'),
                 custom_domain=tenant_data.get('custom_domain'),
                 primary_color=tenant_data.get('primary_color', '#3498db'),
                 secondary_color=tenant_data.get('secondary_color', '#2ecc71'),

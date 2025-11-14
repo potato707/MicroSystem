@@ -258,3 +258,38 @@ FRONTEND_URL = 'http://localhost:3000'  # Main frontend URL
 CLIENT_DASHBOARD_URL = 'http://localhost:3000/client/dashboard'
 CLIENT_LOGIN_URL = 'http://localhost:3000/client/login'
 
+
+
+# ============================================
+# Celery Configuration
+# ============================================
+
+# Broker settings (Redis)
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+
+# Task serialization
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+
+# Timezone
+CELERY_TIMEZONE = 'Africa/Cairo'
+CELERY_ENABLE_UTC = True
+
+# Task execution settings
+CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes max per task
+CELERY_TASK_SOFT_TIME_LIMIT = 25 * 60  # Soft limit 25 minutes
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1  # One task at a time
+
+# Result expiration
+CELERY_RESULT_EXPIRES = 3600  # 1 hour
+
+# Task tracking
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_SEND_SENT_EVENT = True
+
+# Error handling
+CELERY_TASK_ACKS_LATE = True
+CELERY_TASK_REJECT_ON_WORKER_LOST = True
+

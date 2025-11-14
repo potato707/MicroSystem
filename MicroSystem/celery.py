@@ -14,8 +14,23 @@ app = Celery('MicroSystem')
 # Load config from Django settings with 'CELERY_' prefix
 app.config_from_object('django.conf:settings', namespace='CELERY')
 
+# Explicitly include task modules
+app.conf.update(
+    imports=[
+        'hr_management.ssl_tasks',
+    ]
+)
+
 # Auto-discover tasks in all installed apps
-app.autodiscover_tasks()
+app.autodiscover_tasks(lambda: ['hr_management'])
+
+# Import tasks explicitly to ensure they're registered
+try:
+    from hr_management import ssl_tasks
+    print("✅ SSL tasks imported successfully")
+except Exception as e:
+    print(f"⚠️  Error importing ssl_tasks: {e}")
+
 
 
 # Celery Beat Schedule for periodic tasks

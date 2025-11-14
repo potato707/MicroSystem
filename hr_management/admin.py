@@ -15,7 +15,7 @@ class EmployeeAdmin(admin.ModelAdmin):
     list_filter = ['status', 'department', 'hire_date', 'complaint_categories']
     search_fields = ['name', 'english_name']
     ordering = ['name']
-    filter_horizontal = ['complaint_categories', 'branches']  # Nice UI for many-to-many fields
+    filter_horizontal = ['complaint_categories']  # Nice UI for many-to-many fields
     
     def get_branches(self, obj):
         """Display all branches this employee is assigned to"""

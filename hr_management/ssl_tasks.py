@@ -198,7 +198,7 @@ def add_domain_to_nginx(domain):
     server_block = f"""
 # Custom domain: {domain}
 server {{
-    listen 80;
+    listen 443 ssl;
     server_name {domain};
 
     # Frontend (Next.js)
