@@ -259,7 +259,6 @@ CLIENT_DASHBOARD_URL = 'http://localhost:3000/client/dashboard'
 CLIENT_LOGIN_URL = 'http://localhost:3000/client/login'
 
 
-
 # ============================================
 # Celery Configuration
 # ============================================

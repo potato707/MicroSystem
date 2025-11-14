@@ -32,7 +32,6 @@ except Exception as e:
     print(f"⚠️  Error importing ssl_tasks: {e}")
 
 
-
 # Celery Beat Schedule for periodic tasks
 app.conf.beat_schedule = {
     # Check SSL expiry daily at 3 AM
