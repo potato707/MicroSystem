@@ -21,7 +21,9 @@ class Tenant(models.Model):
     name = models.CharField(max_length=200, verbose_name='Client Name', unique=True)
     subdomain = models.SlugField(
         max_length=100, 
-        unique=True, 
+        unique=True,
+        blank=True,
+        null=True,
         validators=[RegexValidator(
             regex='^[a-z0-9-]+$',
             message='Subdomain can only contain lowercase letters, numbers, and hyphens'
