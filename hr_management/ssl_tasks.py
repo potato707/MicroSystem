@@ -50,14 +50,24 @@ def setup_ssl_certificate(self, tenant_id, email='admin@localhost'):
             logger.warning(f'⚠️  DNS not ready for {domain}, retrying in 5 minutes...')
             raise self.retry(countdown=300, exc=Exception('DNS not propagated yet'))
         
-        # Step 3: Run certbot
+        # Step 3: Add domain to nginx config BEFORE certbot
+        logger.info(f'📝 Adding {domain} to Nginx config...')
+        if not add_domain_to_nginx(domain):
+            logger.error(f'❌ Failed to add {domain} to Nginx config')
+            raise Exception('Failed to configure Nginx')
+        
+        # Step 4: Reload nginx to apply new config
+        subprocess.run(['sudo', 'nginx', '-t'], check=True)  # Test config first
+        subprocess.run(['sudo', 'systemctl', 'reload', 'nginx'], check=True)
+        logger.info(f'✅ Nginx config updated and reloaded')
+        
+        # Step 5: Run certbot
         logger.info(f'📜 Running certbot for {domain}...')
         
         cmd = [
             'sudo', 'certbot',
             '--nginx',
             '-d', domain,
-            '-d', f'www.{domain}',
             '--email', email,
             '--agree-tos',
             '--non-interactive',
@@ -175,6 +185,67 @@ def check_ssl_expiry():
         'renewed': renewed_count,
         'failed': failed_count
     }
+
+
+def add_domain_to_nginx(domain):
+    """
+    Add a custom domain server block to client-radar.conf
+    This creates an HTTP server block that certbot will then upgrade to HTTPS
+    """
+    nginx_config_path = '/etc/nginx/sites-available/client-radar.conf'
+    
+    # Server block template for custom domain
+    server_block = f"""
+# Custom domain: {domain}
+server {{
+    listen 80;
+    server_name {domain};
+
+    # Frontend (Next.js)
+    location / {{
+        proxy_pass http://localhost:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }}
+
+    # Backend API (Django)
+    location /hr/ {{
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }}
+
+    location /api/ {{
+        proxy_pass http://localhost:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }}
+}}
+"""
+    
+    try:
+        # Read current config
+        with open(nginx_config_path, 'r') as f:
+            config = f.read()
+        
+        # Check if domain already exists
+        if f'server_name {domain}' in config:
+            logger.info(f'✓ {domain} already in Nginx config')
+            return True
+        
+        # Append new server block
+        with open(nginx_config_path, 'a') as f:
+            f.write('\n' + server_block)
+        
+        logger.info(f'✓ Added {domain} to {nginx_config_path}')
+        return True
+    
+    except Exception as e:
+        logger.error(f'Error adding {domain} to Nginx config: {e}')
+        return False
 
 
 def verify_dns(domain):
