@@ -32,3 +32,12 @@ def tenant_management_view(request):
     Only accessible to staff members.
     """
     return render(request, 'tenant_management.html')
+
+
+@require_http_methods(["GET"])
+def dns_setup_guide_view(request):
+    """
+    Display DNS setup guide for custom domains.
+    Public page - accessible to anyone.
+    """
+    return render(request, 'dns_setup_guide.html')

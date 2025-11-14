@@ -1,0 +1,51 @@
+# Add these to your MicroSystem/settings.py file
+
+# ========================================
+# CELERY CONFIGURATION
+# ========================================
+
+# Celery Broker (using Redis - install: pip install redis)
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+
+# Or use RabbitMQ (install: pip install amqp)
+# CELERY_BROKER_URL = 'amqp://guest:guest@localhost:5672//'
+
+# Or use Django DB as broker (simpler but slower)
+# CELERY_BROKER_URL = 'django://'
+# Add 'kombu.transport.django' to INSTALLED_APPS
+
+# Celery Task Settings
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'Africa/Cairo'  # Or your timezone
+CELERY_ENABLE_UTC = True
+
+# Task result expiry (24 hours)
+CELERY_RESULT_EXPIRES = 86400
+
+# Task time limits
+CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes
+CELERY_TASK_SOFT_TIME_LIMIT = 25 * 60  # 25 minutes
+
+# Worker settings
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_WORKER_MAX_TASKS_PER_CHILD = 50
+
+# Logging
+CELERY_WORKER_HIJACK_ROOT_LOGGER = False
+CELERY_WORKER_LOG_FORMAT = '[%(asctime)s: %(levelname)s/%(processName)s] %(message)s'
+
+# ========================================
+# SUDO CONFIGURATION FOR SSL
+# ========================================
+
+# For automated SSL setup, add Django user to sudoers:
+# 1. Run: sudo visudo
+# 2. Add line:
+#    www-data ALL=(ALL) NOPASSWD: /usr/bin/certbot
+#    (replace www-data with your web server user)
+# 
+# Or for development:
+#    your_username ALL=(ALL) NOPASSWD: /usr/bin/certbot

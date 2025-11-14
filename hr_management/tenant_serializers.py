@@ -36,7 +36,8 @@ class TenantListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tenant
         fields = [
-            'id', 'name', 'subdomain', 'full_domain', 'is_active',
+            'id', 'name', 'subdomain', 'domain_type', 'custom_domain', 
+            'full_domain', 'is_active',
             'logo', 'primary_color', 'secondary_color',
             'created_at', 'module_count', 'enabled_modules_count'
         ]
@@ -61,7 +62,8 @@ class TenantDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tenant
         fields = [
-            'id', 'name', 'subdomain', 'custom_domain', 'full_domain',
+            'id', 'name', 'subdomain', 'domain_type', 'custom_domain', 
+            'full_domain',
             'logo', 'primary_color', 'secondary_color',
             'is_active', 'contact_email', 'contact_phone',
             'created_at', 'updated_at', 'created_by_username',
@@ -112,7 +114,7 @@ class TenantCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tenant
         fields = [
-            'name', 'subdomain', 'custom_domain',
+            'name', 'subdomain', 'domain_type', 'custom_domain',
             'logo', 'primary_color', 'secondary_color',
             'contact_email', 'contact_phone',
             'module_keys',
@@ -127,6 +129,28 @@ class TenantCreateSerializer(serializers.ModelSerializer):
                 "Subdomain can only contain letters, numbers, and hyphens"
             )
         return value
+    
+    def validate(self, data):
+        """Validate that custom_domain is provided when domain_type is 'custom'"""
+        domain_type = data.get('domain_type', 'subdomain')
+        custom_domain = data.get('custom_domain')
+        
+        if domain_type == 'custom':
+            if not custom_domain:
+                raise serializers.ValidationError({
+                    'custom_domain': 'Custom domain is required when domain type is "custom"'
+                })
+            # Validate custom domain format (basic check)
+            if not '.' in custom_domain or ' ' in custom_domain:
+                raise serializers.ValidationError({
+                    'custom_domain': 'Invalid domain format. Example: mycompany.com'
+                })
+        
+        # If domain_type is subdomain, clear custom_domain
+        if domain_type == 'subdomain':
+            data['custom_domain'] = None
+        
+        return data
     
     def create(self, validated_data):
         """Custom create method to handle module assignment and admin user creation"""
@@ -178,10 +202,32 @@ class TenantUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tenant
         fields = [
-            'name', 'custom_domain', 'logo', 
+            'name', 'domain_type', 'custom_domain', 'logo', 
             'primary_color', 'secondary_color',
             'contact_email', 'contact_phone', 'is_active'
         ]
+    
+    def validate(self, data):
+        """Validate that custom_domain is provided when domain_type is 'custom'"""
+        domain_type = data.get('domain_type', self.instance.domain_type if self.instance else 'subdomain')
+        custom_domain = data.get('custom_domain', self.instance.custom_domain if self.instance else None)
+        
+        if domain_type == 'custom':
+            if not custom_domain:
+                raise serializers.ValidationError({
+                    'custom_domain': 'Custom domain is required when domain type is "custom"'
+                })
+            # Validate custom domain format (basic check)
+            if not '.' in custom_domain or ' ' in custom_domain:
+                raise serializers.ValidationError({
+                    'custom_domain': 'Invalid domain format. Example: mycompany.com'
+                })
+        
+        # If domain_type is subdomain, clear custom_domain
+        if domain_type == 'subdomain':
+            data['custom_domain'] = None
+        
+        return data
     
     def update(self, instance, validated_data):
         """Custom update to regenerate config after changes"""

@@ -11,7 +11,7 @@ from .tenant_views import (
     check_module_access,
     tenant_statistics
 )
-from .tenant_creator_view import tenant_creator_view, tenant_management_view
+from .tenant_creator_view import tenant_creator_view, tenant_management_view, dns_setup_guide_view
 
 router = DefaultRouter()
 router.register(r'tenants', TenantViewSet, basename='tenant')
@@ -23,6 +23,9 @@ urlpatterns = [
     
     # Tenant Management - View, edit, and delete tenants
     path('manage-tenants/', tenant_management_view, name='manage-tenants'),
+    
+    # DNS Setup Guide - Public guide for setting up custom domains
+    path('dns-setup-guide/', dns_setup_guide_view, name='dns-setup-guide'),
     
     # Router URLs
     path('', include(router.urls)),

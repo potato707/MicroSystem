@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>دليل إعداد DNS - Custom Domain Setup</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --primary: #2563eb;
+            --secondary: #10b981;
+            --danger: #ef4444;
+            --warning: #f59e0b;
+            --dark: #1f2937;
+            --light: #f3f4f6;
+            --border: #e5e7eb;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            overflow: hidden;
+        }
+
+        .header {
+            background: linear-gradient(135deg, var(--primary), #1e40af);
+            color: white;
+            padding: 40px;
+            text-align: center;
+        }
+
+        .header h1 {
+            font-size: 36px;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .header p {
+            font-size: 18px;
+            opacity: 0.95;
+        }
+
+        .content {
+            padding: 40px;
+        }
+
+        .step-container {
+            margin-bottom: 40px;
+        }
+
+        .step-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 20px;
+            cursor: pointer;
+            padding: 20px;
+            background: var(--light);
+            border-radius: 12px;
+            transition: all 0.3s;
+        }
+
+        .step-header:hover {
+            background: #e5e7eb;
+            transform: translateX(-5px);
+        }
+
+        .step-number {
+            width: 50px;
+            height: 50px;
+            background: var(--primary);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: bold;
+            margin-left: 20px;
+            flex-shrink: 0;
+        }
+
+        .step-title {
+            font-size: 24px;
+            font-weight: 600;
+            color: var(--dark);
+        }
+
+        .step-content {
+            padding: 20px;
+            background: white;
+            border-right: 4px solid var(--primary);
+            margin-right: 20px;
+            display: none;
+        }
+
+        .step-content.active {
+            display: block;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .provider-tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .provider-tab {
+            padding: 12px 24px;
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.3s;
+            background: white;
+            font-weight: 600;
+        }
+
+        .provider-tab:hover {
+            border-color: var(--primary);
+            transform: translateY(-2px);
+        }
+
+        .provider-tab.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        .provider-content {
+            display: none;
+        }
+
+        .provider-content.active {
+            display: block;
+        }
+
+        .dns-form {
+            background: var(--light);
+            padding: 20px;
+            border-radius: 12px;
+            margin: 20px 0;
+            border: 2px dashed var(--border);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: 150px 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+            align-items: center;
+        }
+
+        .form-label {
+            font-weight: 600;
+            color: var(--dark);
+        }
+
+        .form-value {
+            background: white;
+            padding: 12px;
+            border-radius: 8px;
+            border: 2px solid var(--border);
+            font-family: 'Courier New', monospace;
+            position: relative;
+        }
+
+        .copy-btn {
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.3s;
+        }
+
+        .copy-btn:hover {
+            background: #1e40af;
+        }
+
+        .screenshot-box {
+            background: #f9fafb;
+            border: 2px solid var(--border);
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            margin: 20px 0;
+        }
+
+        .screenshot-placeholder {
+            width: 100%;
+            min-height: 300px;
+            background: white;
+            border: 3px dashed var(--border);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            color: #9ca3af;
+            font-size: 48px;
+        }
+
+        .alert {
+            padding: 15px 20px;
+            border-radius: 10px;
+            margin: 20px 0;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .alert-success {
+            background: #d1fae5;
+            border: 2px solid var(--secondary);
+            color: #065f46;
+        }
+
+        .alert-warning {
+            background: #fef3c7;
+            border: 2px solid var(--warning);
+            color: #92400e;
+        }
+
+        .alert-info {
+            background: #dbeafe;
+            border: 2px solid var(--primary);
+            color: #1e3a8a;
+        }
+
+        .alert-icon {
+            font-size: 24px;
+        }
+
+        .btn {
+            padding: 14px 28px;
+            border-radius: 10px;
+            border: none;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1e40af;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(37, 99, 235, 0.3);
+        }
+
+        .btn-success {
+            background: var(--secondary);
+            color: white;
+        }
+
+        .btn-success:hover {
+            background: #059669;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(16, 185, 129, 0.3);
+        }
+
+        .verification-box {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .verification-box h3 {
+            margin-bottom: 15px;
+            font-size: 24px;
+        }
+
+        .verification-input {
+            width: 100%;
+            max-width: 500px;
+            padding: 15px;
+            border-radius: 8px;
+            border: none;
+            font-size: 16px;
+            margin: 15px auto;
+            display: block;
+            text-align: center;
+        }
+
+        .timeline {
+            position: relative;
+            padding-right: 40px;
+            margin: 30px 0;
+        }
+
+        .timeline::before {
+            content: '';
+            position: absolute;
+            right: 20px;
+            top: 0;
+            bottom: 0;
+            width: 3px;
+            background: var(--border);
+        }
+
+        .timeline-item {
+            position: relative;
+            padding-bottom: 30px;
+        }
+
+        .timeline-dot {
+            position: absolute;
+            right: 11px;
+            width: 20px;
+            height: 20px;
+            background: var(--primary);
+            border-radius: 50%;
+            border: 4px solid white;
+            box-shadow: 0 0 0 3px var(--border);
+        }
+
+        .timeline-content {
+            background: var(--light);
+            padding: 15px 20px;
+            border-radius: 8px;
+            margin-left: 50px;
+        }
+
+        .code-block {
+            background: #1f2937;
+            color: #10b981;
+            padding: 20px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            margin: 20px 0;
+            overflow-x: auto;
+            position: relative;
+        }
+
+        .code-block code {
+            display: block;
+            white-space: pre;
+        }
+
+        .help-section {
+            background: linear-gradient(135deg, #fbbf24, #f59e0b);
+            color: white;
+            padding: 40px;
+            text-align: center;
+            margin-top: 40px;
+            border-radius: 12px;
+        }
+
+        .help-section h2 {
+            margin-bottom: 20px;
+            font-size: 32px;
+        }
+
+        .contact-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-top: 30px;
+        }
+
+        .contact-card {
+            background: white;
+            color: var(--dark);
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        }
+
+        .contact-icon {
+            font-size: 40px;
+            margin-bottom: 15px;
+        }
+
+        @media (max-width: 768px) {
+            .content {
+                padding: 20px;
+            }
+
+            .form-row {
+                grid-template-columns: 1fr;
+            }
+
+            .step-header {
+                flex-direction: column;
+                text-align: center;
+            }
+
+            .step-number {
+                margin: 0 0 15px 0;
+            }
+        }
+
+        .back-link {
+            text-align: center;
+            margin-top: 30px;
+            padding-top: 30px;
+            border-top: 2px solid var(--border);
+        }
+
+        .back-link a {
+            color: var(--primary);
+            text-decoration: none;
+            font-size: 18px;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+
+        .back-link a:hover {
+            color: #1e40af;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <h1>🌐 دليل إعداد Custom Domain</h1>
+            <p>اتبع الخطوات التالية لربط الدومين الخاص بك بالنظام</p>
+        </div>
+
+        <div class="content">
+            <!-- Overview Alert -->
+            <div class="alert alert-info">
+                <span class="alert-icon">💡</span>
+                <div>
+                    <strong>ماذا نفعل هنا؟</strong>
+                    <p>سنقوم بربط الدومين الخاص بك (مثل: adamcompany.com) بالنظام عن طريق إعداد DNS Records</p>
+                </div>
+            </div>
+
+
+            <!-- Step 1 -->
+            <div class="step-container">
+                <div class="step-header" onclick="toggleStep(1)">
+                    <div class="step-number">1</div>
+                    <div class="step-title">تسجيل الدخول إلى Domain Provider</div>
+                </div>
+                <div class="step-content" id="step1">
+                    <p style="margin-bottom: 20px; font-size: 18px;">اذهب إلى الموقع الذي اشتريت منه الدومين:</p>
+                    
+                    <div class="provider-tabs">
+                        <div class="provider-tab active" onclick="switchProvider('godaddy')">GoDaddy</div>
+                        <div class="provider-tab" onclick="switchProvider('namecheap')">Namecheap</div>
+                        <div class="provider-tab" onclick="switchProvider('cloudflare')">Cloudflare</div>
+                        <div class="provider-tab" onclick="switchProvider('other')">Other</div>
+                    </div>
+
+                    <div class="provider-content active" id="godaddy">
+                        <div class="alert alert-info">
+                            <span class="alert-icon">🔗</span>
+                            <div>
+                                <strong>GoDaddy:</strong> اذهب إلى <a href="https://www.godaddy.com" target="_blank">www.godaddy.com</a>
+                            </div>
+                        </div>
+                        <div class="screenshot-box">
+                            <div class="screenshot-placeholder">
+                                🖥️
+                                <p style="font-size: 16px; margin-top: 15px;">صفحة تسجيل الدخول في GoDaddy</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="provider-content" id="namecheap">
+                        <div class="alert alert-info">
+                            <span class="alert-icon">🔗</span>
+                            <div>
+                                <strong>Namecheap:</strong> اذهب إلى <a href="https://www.namecheap.com" target="_blank">www.namecheap.com</a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="provider-content" id="cloudflare">
+                        <div class="alert alert-info">
+                            <span class="alert-icon">🔗</span>
+                            <div>
+                                <strong>Cloudflare:</strong> اذهب إلى <a href="https://www.cloudflare.com" target="_blank">www.cloudflare.com</a>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="provider-content" id="other">
+                        <div class="alert alert-warning">
+                            <span class="alert-icon">⚠️</span>
+                            <div>
+                                <strong>موقع آخر؟</strong> الخطوات متشابهة تقريباً في جميع مواقع الدومينات
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 2 -->
+            <div class="step-container">
+                <div class="step-header" onclick="toggleStep(2)">
+                    <div class="step-number">2</div>
+                    <div class="step-title">الذهاب إلى DNS Settings</div>
+                </div>
+                <div class="step-content" id="step2">
+                    <div class="alert alert-info">
+                        <span class="alert-icon">📍</span>
+                        <div>
+                            <strong>ابحث عن:</strong> DNS Management, DNS Settings, أو Advanced DNS
+                        </div>
+                    </div>
+
+                    <div class="timeline">
+                        <div class="timeline-item">
+                            <div class="timeline-dot"></div>
+                            <div class="timeline-content">
+                                <strong>GoDaddy:</strong> My Products → اضغط "DNS" بجانب الدومين
+                            </div>
+                        </div>
+                        <div class="timeline-item">
+                            <div class="timeline-dot"></div>
+                            <div class="timeline-content">
+                                <strong>Namecheap:</strong> Domain List → Manage → Advanced DNS
+                            </div>
+                        </div>
+                        <div class="timeline-item">
+                            <div class="timeline-dot"></div>
+                            <div class="timeline-content">
+                                <strong>Cloudflare:</strong> Select Domain → DNS من القائمة
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 3 -->
+            <div class="step-container">
+                <div class="step-header" onclick="toggleStep(3)">
+                    <div class="step-number">3</div>
+                    <div class="step-title">إضافة CNAME Record</div>
+                </div>
+                <div class="step-content" id="step3">
+                    <div class="alert alert-warning">
+                        <span class="alert-icon">⚠️</span>
+                        <div>
+                            <strong>مهم جداً:</strong> انسخ القيم التالية بدقة (يمكنك الضغط على "نسخ")
+                        </div>
+                    </div>
+
+                    <div class="dns-form">
+                        <h3 style="margin-bottom: 20px; color: var(--dark);">📝 معلومات CNAME Record:</h3>
+                        
+                        <div class="form-row">
+                            <div class="form-label">Type:</div>
+                            <div class="form-value">
+                                CNAME
+                                <button class="copy-btn" onclick="copyToClipboard('CNAME')">نسخ</button>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-label">Name/Host:</div>
+                            <div class="form-value">
+                                @ (أو اتركه فارغاً)
+                                <button class="copy-btn" onclick="copyToClipboard('@')">نسخ</button>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-label">Value/Target:</div>
+                            <div class="form-value">
+                                <span id="serverDomain">client-radar.org</span>
+                                <button class="copy-btn" onclick="copyToClipboard(document.getElementById('serverDomain').textContent)">نسخ</button>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-label">TTL:</div>
+                            <div class="form-value">
+                                Automatic (أو 3600)
+                                <button class="copy-btn" onclick="copyToClipboard('3600')">نسخ</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-success">
+                        <span class="alert-icon">✅</span>
+                        <div>
+                            <strong>بعد الإضافة:</strong> اضغط Save أو Add Record
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 4 -->
+            <div class="step-container">
+                <div class="step-header" onclick="toggleStep(4)">
+                    <div class="step-number">4</div>
+                    <div class="step-title">إضافة WWW (اختياري)</div>
+                </div>
+                <div class="step-content" id="step4">
+                    <p style="margin-bottom: 20px;">لجعل www.client-radar.org يعمل أيضاً:</p>
+
+                    <div class="dns-form">
+                        <div class="form-row">
+                            <div class="form-label">Type:</div>
+                            <div class="form-value">CNAME</div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-label">Name/Host:</div>
+                            <div class="form-value">
+                                www
+                                <button class="copy-btn" onclick="copyToClipboard('www')">نسخ</button>
+                            </div>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-label">Value/Target:</div>
+                            <div class="form-value">
+                                <span id="userDomain">client-radar.org</span>
+                                <button class="copy-btn" onclick="copyToClipboard(document.getElementById('userDomain').textContent)">نسخ</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 5 -->
+            <div class="step-container">
+                <div class="step-header" onclick="toggleStep(5)">
+                    <div class="step-number">5</div>
+                    <div class="step-title">الانتظار (DNS Propagation)</div>
+                </div>
+                <div class="step-content" id="step5">
+                    <div class="alert alert-info">
+                        <span class="alert-icon">⏱️</span>
+                        <div>
+                            <strong>الوقت المطلوب:</strong> 15-30 دقيقة (أحياناً حتى ساعة)
+                        </div>
+                    </div>
+
+                    <div class="timeline">
+                        <div class="timeline-item">
+                            <div class="timeline-dot"></div>
+                            <div class="timeline-content">
+                                <strong>0-5 دقائق:</strong> بدء رفع التغييرات
+                            </div>
+                        </div>
+                        <div class="timeline-item">
+                            <div class="timeline-dot"></div>
+                            <div class="timeline-content">
+                                <strong>5-15 دقيقة:</strong> DNS بدأ ينتشر
+                            </div>
+                        </div>
+                        <div class="timeline-item">
+                            <div class="timeline-dot"></div>
+                            <div class="timeline-content">
+                                <strong>15-30 دقيقة:</strong> DNS يعمل في معظم المناطق ✅
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="alert alert-warning">
+                        <span class="alert-icon">☕</span>
+                        <div>
+                            <strong>نصيحة:</strong> استرح وارجع بعد 20 دقيقة!
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 6 -->
+            <div class="step-container">
+                <div class="step-header" onclick="toggleStep(6)">
+                    <div class="step-number">6</div>
+                    <div class="step-title">التحقق من DNS</div>
+                </div>
+                <div class="step-content" id="step6">
+                    <div class="verification-box">
+                        <h3>🔍 تحقق من DNS الآن</h3>
+                        <p>أدخل الدومين الخاص بك للتحقق:</p>
+                        <input type="text" class="verification-input" id="domainCheck" placeholder="adamcompany.com">
+                        <button class="btn btn-success" onclick="checkDNS()">
+                            ✓ التحقق الآن
+                        </button>
+                        <div id="dnsResult" style="margin-top: 20px;"></div>
+                    </div>
+
+                    <h3 style="margin: 30px 0 20px;">أو استخدم Terminal:</h3>
+                    <div class="code-block">
+                        <button class="copy-btn" onclick="copyToClipboard('nslookup client-radar.org')" style="top: 20px; left: 20px;">نسخ</button>
+                        <code>$ nslookup client-radar.org
+
+Server:  8.8.8.8
+Address: 8.8.8.8#53
+
+Non-authoritative answer:
+Name:    client-radar.org
+Address: 123.45.67.89  ✅</code>
+                    </div>
+
+                    <div class="alert alert-success">
+                        <span class="alert-icon">✅</span>
+                        <div>
+                            <strong>إذا ظهر IP:</strong> DNS يعمل بنجاح!
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Step 7 -->
+            <div class="step-container">
+                <div class="step-header" onclick="toggleStep(7)">
+                    <div class="step-number">7</div>
+                    <div class="step-title">اختبار الموقع</div>
+                </div>
+                <div class="step-content" id="step7">
+                    <div class="verification-box">
+                        <h3>🌐 افتح موقعك الآن</h3>
+                        <input type="text" class="verification-input" id="websiteUrl" placeholder="https://client-radar.org">
+                        <button class="btn btn-primary" onclick="openWebsite()">
+                            🚀 افتح الموقع
+                        </button>
+                    </div>
+
+                    <div class="alert alert-success" style="margin-top: 20px;">
+                        <span class="alert-icon">🎉</span>
+                        <div>
+                            <strong>مبروك!</strong> إذا ظهرت صفحة تسجيل الدخول، فكل شيء يعمل بنجاح!
+                        </div>
+                    </div>
+
+                    <div class="alert alert-warning" style="margin-top: 10px;">
+                        <span class="alert-icon">⚠️</span>
+                        <div>
+                            <strong>خطأ SSL؟</strong> لا تقلق! DNS يعمل، فقط يحتاج إعداد SSL من إدارة النظام
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+      
+
+            <!-- Back Link -->
+            <div class="back-link">
+                <a href="/api/create-tenant/">← العودة إلى صفحة إنشاء العملاء</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Toggle step visibility
+        function toggleStep(stepNumber) {
+            const stepContent = document.getElementById('step' + stepNumber);
+            stepContent.classList.toggle('active');
+        }
+
+        // Switch provider tabs
+        function switchProvider(provider) {
+            // Hide all provider contents
+            document.querySelectorAll('.provider-content').forEach(content => {
+                content.classList.remove('active');
+            });
+            
+            // Remove active class from all tabs
+            document.querySelectorAll('.provider-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Show selected provider
+            document.getElementById(provider).classList.add('active');
+            event.target.classList.add('active');
+        }
+
+        // Copy to clipboard
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = event.target;
+                const originalText = btn.textContent;
+                btn.textContent = '✓ تم النسخ';
+                btn.style.background = '#10b981';
+                
+                setTimeout(() => {
+                    btn.textContent = originalText;
+                    btn.style.background = '';
+                }, 2000);
+            });
+        }
+
+        // Check DNS
+        function checkDNS() {
+            const domain = document.getElementById('domainCheck').value;
+            const resultDiv = document.getElementById('dnsResult');
+            
+            if (!domain) {
+                resultDiv.innerHTML = '<p style="color: #ef4444;">⚠️ الرجاء إدخال الدومين</p>';
+                return;
+            }
+            
+            resultDiv.innerHTML = '<p style="color: white;">🔍 جاري التحقق...</p>';
+            
+            // Simulate DNS check (in real app, call backend API)
+            setTimeout(() => {
+                resultDiv.innerHTML = `
+                    <div style="background: white; color: #065f46; padding: 20px; border-radius: 10px; margin-top: 20px;">
+                        <h4 style="color: #10b981; margin-bottom: 10px;">✅ DNS يعمل بنجاح!</h4>
+                        <p style="margin: 5px 0;"><strong>Domain:</strong> ${domain}</p>
+                        <p style="margin: 5px 0;"><strong>Status:</strong> Active</p>
+                        <p style="margin: 5px 0;"><strong>IP:</strong> 123.45.67.89</p>
+                    </div>
+                `;
+            }, 2000);
+        }
+
+        // Open website
+        function openWebsite() {
+            let url = document.getElementById('websiteUrl').value;
+            if (!url) {
+                alert('الرجاء إدخال رابط الموقع');
+                return;
+            }
+            
+            // Add https:// if not present
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                url = 'https://' + url;
+            }
+            
+            window.open(url, '_blank');
+        }
+
+        // Auto-open first step
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('step1').classList.add('active');
+        });
+    </script>
+</body>
+</html>

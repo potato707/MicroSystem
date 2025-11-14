@@ -34,7 +34,9 @@ from .views import (
     # Notification Views
     NotificationViewSet,
     # Shift Scheduling Views
-    WeeklyShiftScheduleViewSet, ShiftOverrideViewSet, ShiftAttendanceViewSet
+    WeeklyShiftScheduleViewSet, ShiftOverrideViewSet, ShiftAttendanceViewSet,
+    # Location Tracking Views
+    LocationPingView, LocationTrackingReportView, LocationTrackingEventsView,
 )
 
 # Import client portal views separately
@@ -131,6 +133,11 @@ urlpatterns = [
     path("shifts/checkout/", ShiftCheckOutView.as_view(), name="shift-checkout"),
     path("shifts/<uuid:shift_id>/checkout/", ShiftCheckOutView.as_view(), name="shift-checkout-specific"),
     path("shifts/<uuid:shift_id>/break/", ShiftBreakView.as_view(), name="shift-break"),
+    
+    # Location Tracking (Silent Monitoring)
+    path("location-ping/", LocationPingView.as_view(), name="location-ping"),
+    path("location-tracking-report/", LocationTrackingReportView.as_view(), name="location-tracking-report"),
+    path("location-tracking-events/", LocationTrackingEventsView.as_view(), name="location-tracking-events"),
     
     # Office Location Management
     path("office-location/set/", SetOfficeLocationView.as_view(), name="set-office-location"),

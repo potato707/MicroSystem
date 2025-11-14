@@ -30,12 +30,38 @@ class Tenant(models.Model):
     )
     
     # Domain Configuration
+    DOMAIN_TYPE_CHOICES = [
+        ('subdomain', 'Subdomain'),
+        ('custom', 'Custom Domain'),
+    ]
+    
+    domain_type = models.CharField(
+        max_length=20,
+        choices=DOMAIN_TYPE_CHOICES,
+        default='subdomain',
+        verbose_name='Domain Type'
+    )
+    
     custom_domain = models.CharField(
         max_length=255, 
         blank=True, 
         null=True,
-        verbose_name='Custom Domain (Optional)',
-        help_text='e.g., client.myapp.com'
+        unique=True,
+        verbose_name='Custom Domain',
+        help_text='e.g., mycompany.com (only if domain_type is custom)'
+    )
+    
+    # SSL Configuration
+    ssl_enabled = models.BooleanField(
+        default=False,
+        verbose_name='SSL Enabled',
+        help_text='Whether SSL certificate is installed for this domain'
+    )
+    ssl_issued_at = models.DateTimeField(
+        blank=True,
+        null=True,
+        verbose_name='SSL Issued At',
+        help_text='When the SSL certificate was issued'
     )
     
     # Branding
@@ -92,9 +118,12 @@ class Tenant(models.Model):
     @property
     def full_domain(self):
         """Returns the full domain for this tenant"""
-        if self.custom_domain:
+        if self.domain_type == 'custom' and self.custom_domain:
             return self.custom_domain
-        return f"{self.subdomain}.myapp.com"
+        # Default to subdomain
+        from django.conf import settings
+        base_domain = getattr(settings, 'BASE_DOMAIN', 'localhost:8000')
+        return f"{self.subdomain}.{base_domain}"
     
     @property
     def folder_path(self):

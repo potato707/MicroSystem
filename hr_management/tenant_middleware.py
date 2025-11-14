@@ -130,13 +130,17 @@ class TenantMiddleware(MiddlewareMixin):
         host = request.get_host().split(':')[0]  # Remove port if present
         logger.info(f"🌐 Extracting tenant from host: {host}")
         
-        # Try to find tenant by custom domain
+        # PRIORITY 1: Try to find tenant by custom domain first
         tenant = Tenant.objects.using('default').filter(
+            domain_type='custom',
             custom_domain=host,
             is_active=True
         ).first()
         
-        # If not found, try to extract subdomain
+        if tenant:
+            logger.info(f"✅ Tenant identified by CUSTOM DOMAIN: {tenant.name} ({host})")
+        
+        # PRIORITY 2: If not found, try to extract subdomain
         if not tenant:
             subdomain = self._extract_subdomain(host)
             if subdomain:
@@ -145,6 +149,8 @@ class TenantMiddleware(MiddlewareMixin):
                     subdomain=subdomain,
                     is_active=True
                 ).first()
+                if tenant:
+                    logger.info(f"✅ Tenant identified by SUBDOMAIN: {tenant.name} ({subdomain})")
             else:
                 logger.info(f"⚪ Main domain detected (no subdomain): {host}")
         

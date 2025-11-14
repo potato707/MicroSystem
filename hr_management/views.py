@@ -7,6 +7,20 @@ import datetime
 from datetime import date, time, timedelta
 from decimal import Decimal
 from rest_framework import viewsets, generics, permissions, status
+
+# ============================================================================
+# GPS Precision Utility - Round all coordinates to 8 decimal places
+# ============================================================================
+def round_gps_coordinate(value):
+    """
+    Round GPS coordinate to 8 decimal places for consistency
+    8 decimal places = ~1.1mm precision, sufficient for all use cases
+    
+    Example: 31.218073599999 -> 31.21807360
+    """
+    if value is None:
+        return None
+    return round(float(value), 8)
 from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
@@ -32,6 +46,8 @@ from .models import (
     TicketDelayThreshold,
     # Shift Scheduling models
     WeeklyShiftSchedule, ShiftOverride, ShiftAttendance,
+    # Location Tracking models
+    LocationTrackingEvent, LocationTrackingSummary,
     # Utility functions
     has_complaint_admin_permission, get_complaint_admin_permissions,
     get_employee_shift_for_date, get_employees_on_shift_now, calculate_weekly_hours
@@ -62,7 +78,9 @@ from .serializers import (
     # Shift Scheduling serializers
     WeeklyShiftScheduleSerializer, BulkWeeklyScheduleSerializer, ShiftOverrideSerializer,
     ShiftAttendanceSerializer, ClockInSerializer, ClockOutSerializer,
-    EmployeeShiftSummarySerializer, CurrentShiftStatusSerializer, LateAbsentReportSerializer
+    EmployeeShiftSummarySerializer, CurrentShiftStatusSerializer, LateAbsentReportSerializer,
+    # Location Tracking serializers
+    LocationPingSerializer, LocationTrackingEventSerializer, LocationTrackingSummarySerializer
 )
 from utils.timezone_utils import system_now
 from rest_framework.response import Response
@@ -1041,6 +1059,12 @@ class ShiftCheckInView(APIView):
         user_latitude = request.data.get('latitude')
         user_longitude = request.data.get('longitude')
         
+        # Round GPS coordinates to 8 decimal places
+        if user_latitude:
+            user_latitude = round_gps_coordinate(user_latitude)
+        if user_longitude:
+            user_longitude = round_gps_coordinate(user_longitude)
+        
         # Check if employee is working remotely today
         today = system_now().date()
         day_of_week = today.weekday()
@@ -1156,6 +1180,12 @@ class ShiftCheckOutView(APIView):
         # Get GPS coordinates from request
         user_latitude = request.data.get('latitude')
         user_longitude = request.data.get('longitude')
+        
+        # Round GPS coordinates to 8 decimal places
+        if user_latitude:
+            user_latitude = round_gps_coordinate(user_latitude)
+        if user_longitude:
+            user_longitude = round_gps_coordinate(user_longitude)
         
         # Check if employee is working remotely today
         today = system_now().date()
@@ -3074,6 +3104,10 @@ class SetOfficeLocationView(APIView):
                 return Response({
                     'error': 'Latitude and longitude are required'
                 }, status=400)
+            
+            # Round GPS coordinates to 8 decimal places
+            latitude = round_gps_coordinate(latitude)
+            longitude = round_gps_coordinate(longitude)
             
             # Deactivate all existing office locations
             OfficeLocation.objects.filter(is_active=True).update(is_active=False)
@@ -5657,3 +5691,230 @@ class DeactivateShareLinkView(APIView):
         return Response({
             'message': 'Share link deactivated successfully'
         }, status=status.HTTP_200_OK)
+
+
+# ============================================================================
+# Location Tracking Views - Silent Monitoring System
+# ============================================================================
+
+class LocationPingView(APIView):
+    """
+    Silent location tracking endpoint
+    Receives location pings every minute from employee devices
+    POST /hr/location-ping/
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            user = request.user
+            
+            # Only track employees (not admins)
+            if not hasattr(user, 'employee'):
+                return Response({'status': 'ok', 'message': 'Not an employee'}, status=200)
+            
+            employee = user.employee
+            
+            # Validate input
+            serializer = LocationPingSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=400)
+            
+            latitude = serializer.validated_data['latitude']
+            longitude = serializer.validated_data['longitude']
+            accuracy = serializer.validated_data.get('accuracy')
+            battery_level = serializer.validated_data.get('battery_level')
+            
+            # Round GPS coordinates to 8 decimal places
+            latitude = round_gps_coordinate(latitude)
+            longitude = round_gps_coordinate(longitude)
+            
+            # Get employee's active branches
+            employee_branches = EmployeeBranch.objects.filter(
+                employee=employee,
+                is_active=True
+            ).select_related('branch')
+            
+            if not employee_branches.exists():
+                return Response({'status': 'ok', 'message': 'No active branches'}, status=200)
+            
+            # Find nearest branch and calculate distance
+            nearest_branch = None
+            min_distance = float('inf')
+            
+            for eb in employee_branches:
+                branch = eb.branch
+                distance = branch.calculate_distance(latitude, longitude)
+                if distance < min_distance:
+                    min_distance = distance
+                    nearest_branch = branch
+            
+            if not nearest_branch:
+                return Response({'status': 'ok', 'message': 'No branch found'}, status=200)
+            
+            within_radius = min_distance <= nearest_branch.attendance_radius
+            
+            # Get active shift
+            active_shift = WorkShift.objects.filter(
+                employee=employee,
+                is_active=True,
+                check_out__isnull=True
+            ).first()
+            
+            # Get or create today's summary
+            today = timezone.now().date()
+            summary, created = LocationTrackingSummary.objects.get_or_create(
+                employee=employee,
+                date=today,
+                defaults={
+                    'shift': active_shift,
+                    'first_ping': timezone.now(),
+                    'last_ping': timezone.now()
+                }
+            )
+            
+            # Update last ping
+            summary.last_ping = timezone.now()
+            
+            # Determine event type and update summary
+            event_type = 'ping'
+            duration_outside = None
+            
+            if not within_radius and not summary.currently_outside:
+                # Employee just exited
+                event_type = 'exit'
+                summary.currently_outside = True
+                summary.current_exit_started = timezone.now()
+                summary.total_exits += 1
+                
+            elif within_radius and summary.currently_outside:
+                # Employee just entered back
+                event_type = 'enter'
+                summary.currently_outside = False
+                
+                # Calculate duration outside
+                if summary.current_exit_started:
+                    duration = (timezone.now() - summary.current_exit_started).total_seconds()
+                    duration_outside = int(duration)
+                    summary.total_time_outside += duration_outside
+                    
+                    # Update longest exit
+                    if duration_outside > summary.longest_exit_duration:
+                        summary.longest_exit_duration = duration_outside
+                    
+                    summary.current_exit_started = None
+            
+            summary.save()
+            
+            # Create tracking event
+            LocationTrackingEvent.objects.create(
+                employee=employee,
+                shift=active_shift,
+                branch=nearest_branch,
+                event_type=event_type,
+                latitude=latitude,
+                longitude=longitude,
+                distance_from_branch=int(min_distance),
+                within_radius=within_radius,
+                duration_outside=duration_outside,
+                battery_level=battery_level,
+                accuracy=accuracy
+            )
+            
+            # Return minimal response (don't reveal tracking)
+            return Response({
+                'status': 'ok'
+            }, status=200)
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            # Don't reveal errors to employee
+            return Response({'status': 'ok'}, status=200)
+
+
+class LocationTrackingReportView(APIView):
+    """
+    Admin-only view to see location tracking reports
+    GET /hr/location-tracking-report/
+    """
+    permission_classes = [IsAuthenticated, IsAdminUser]
+    
+    def get(self, request):
+        try:
+            # Get query parameters
+            employee_id = request.query_params.get('employee_id')
+            date_str = request.query_params.get('date')
+            start_date_str = request.query_params.get('start_date')
+            end_date_str = request.query_params.get('end_date')
+            
+            # Build query
+            summaries = LocationTrackingSummary.objects.select_related('employee', 'shift').all()
+            
+            if employee_id:
+                summaries = summaries.filter(employee_id=employee_id)
+            
+            if date_str:
+                from datetime import datetime
+                date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                summaries = summaries.filter(date=date)
+            
+            if start_date_str and end_date_str:
+                from datetime import datetime
+                start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+                end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+                summaries = summaries.filter(date__range=[start_date, end_date])
+            
+            # Order by most recent and most time outside
+            summaries = summaries.order_by('-date', '-total_time_outside')
+            
+            serializer = LocationTrackingSummarySerializer(summaries, many=True)
+            
+            return Response(serializer.data, status=200)
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return Response({
+                'error': str(e)
+            }, status=500)
+
+
+class LocationTrackingEventsView(APIView):
+    """
+    Admin-only view to see detailed location events
+    GET /hr/location-tracking-events/
+    """
+    permission_classes = [IsAuthenticated, IsAdminUser]
+    
+    def get(self, request):
+        try:
+            employee_id = request.query_params.get('employee_id')
+            date_str = request.query_params.get('date')
+            event_type = request.query_params.get('event_type')
+            
+            events = LocationTrackingEvent.objects.select_related('employee', 'branch', 'shift').all()
+            
+            if employee_id:
+                events = events.filter(employee_id=employee_id)
+            
+            if date_str:
+                from datetime import datetime
+                date = datetime.strptime(date_str, '%Y-%m-%d').date()
+                events = events.filter(timestamp__date=date)
+            
+            if event_type:
+                events = events.filter(event_type=event_type)
+            
+            events = events.order_by('-timestamp')[:500]  # Limit to last 500 events
+            
+            serializer = LocationTrackingEventSerializer(events, many=True)
+            
+            return Response(serializer.data, status=200)
+            
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return Response({
+                'error': str(e)
+            }, status=500)

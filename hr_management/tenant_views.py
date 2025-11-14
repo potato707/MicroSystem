@@ -82,7 +82,34 @@ class TenantViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         """Create tenant with current user as creator"""
-        serializer.save()
+        tenant = serializer.save()
+        
+        # If tenant has custom domain, setup SSL automatically
+        if tenant.domain_type == 'custom' and tenant.custom_domain:
+            try:
+                # Import here to avoid circular imports
+                from .ssl_tasks import setup_ssl_certificate
+                
+                # Trigger SSL setup as background task
+                # This will wait for DNS propagation and then setup SSL
+                setup_ssl_certificate.apply_async(
+                    args=[str(tenant.id)],
+                    kwargs={'email': 'admin@localhost'},
+                    countdown=300  # Wait 5 minutes before starting
+                )
+                
+                # Log the trigger
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.info(f'🔒 SSL setup scheduled for {tenant.custom_domain}')
+            
+            except Exception as e:
+                # Don't fail tenant creation if SSL scheduling fails
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f'Failed to schedule SSL setup for {tenant.custom_domain}: {e}')
+        
+        return tenant
     
     @action(detail=True, methods=['get'])
     def config(self, request, pk=None):
@@ -176,6 +203,66 @@ class TenantViewSet(viewsets.ModelViewSet):
             'message': f'Initialized {count} module definitions',
             'count': count
         })
+    
+    @action(detail=True, methods=['get'])
+    def ssl_status(self, request, pk=None):
+        """
+        Check SSL status for a tenant
+        GET /api/tenants/{id}/ssl_status/
+        """
+        tenant = self.get_object()
+        
+        if tenant.domain_type != 'custom' or not tenant.custom_domain:
+            return Response({
+                'ssl_enabled': False,
+                'message': 'Tenant does not use custom domain'
+            })
+        
+        return Response({
+            'ssl_enabled': tenant.ssl_enabled,
+            'ssl_issued_at': tenant.ssl_issued_at,
+            'custom_domain': tenant.custom_domain,
+            'https_url': f'https://{tenant.custom_domain}' if tenant.ssl_enabled else None
+        })
+    
+    @action(detail=True, methods=['post'])
+    def setup_ssl(self, request, pk=None):
+        """
+        Manually trigger SSL setup for a tenant
+        POST /api/tenants/{id}/setup_ssl/
+        Body (optional): {"email": "admin@example.com"}
+        """
+        tenant = self.get_object()
+        
+        if tenant.domain_type != 'custom' or not tenant.custom_domain:
+            return Response(
+                {'error': 'Tenant does not have a custom domain'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        email = request.data.get('email', 'admin@localhost')
+        
+        try:
+            from .ssl_tasks import setup_ssl_certificate
+            
+            # Trigger SSL setup
+            task = setup_ssl_certificate.apply_async(
+                args=[str(tenant.id)],
+                kwargs={'email': email},
+                countdown=10  # Start in 10 seconds
+            )
+            
+            return Response({
+                'message': f'SSL setup initiated for {tenant.custom_domain}',
+                'task_id': task.id,
+                'domain': tenant.custom_domain
+            })
+        
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to initiate SSL setup: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class ModuleDefinitionViewSet(viewsets.ReadOnlyModelViewSet):

@@ -19,6 +19,8 @@ from .models import (
     TicketDelayThreshold,
     # Shift Scheduling models
     WeeklyShiftSchedule, ShiftOverride, ShiftAttendance,
+    # Location Tracking models
+    LocationTrackingEvent, LocationTrackingSummary,
     # Helper functions
     get_employee_shift_for_date, calculate_weekly_hours
 )
@@ -1723,4 +1725,79 @@ class LateAbsentReportSerializer(serializers.Serializer):
     present = serializers.IntegerField()
     late = serializers.IntegerField()
     absent = serializers.IntegerField()
-    employees = ShiftAttendanceSerializer(many=True)
+
+
+# ============================================================================
+# Location Tracking Serializers - Silent Monitoring
+# ============================================================================
+
+class LocationTrackingEventSerializer(serializers.ModelSerializer):
+    """Serializer for location tracking events"""
+    employee_name = serializers.CharField(source='employee.name', read_only=True)
+    branch_name = serializers.CharField(source='branch.name', read_only=True)
+    event_type_display = serializers.CharField(source='get_event_type_display', read_only=True)
+    
+    class Meta:
+        model = LocationTrackingEvent
+        fields = [
+            'id', 'employee', 'employee_name', 'shift', 'branch', 'branch_name',
+            'event_type', 'event_type_display', 'timestamp', 'latitude', 'longitude',
+            'distance_from_branch', 'within_radius', 'duration_outside',
+            'battery_level', 'accuracy'
+        ]
+        read_only_fields = ['id', 'timestamp']
+
+
+class LocationTrackingSummarySerializer(serializers.ModelSerializer):
+    """Serializer for daily location tracking summary"""
+    employee_name = serializers.CharField(source='employee.name', read_only=True)
+    employee_position = serializers.CharField(source='employee.position', read_only=True)
+    total_time_outside_formatted = serializers.SerializerMethodField()
+    compliance_percentage = serializers.FloatField(source='get_compliance_percentage', read_only=True)
+    total_time_outside = serializers.SerializerMethodField()
+    
+    def get_total_time_outside(self, obj):
+        """
+        Calculate total time outside including current time if employee is still outside
+        """
+        from django.utils import timezone
+        
+        total = obj.total_time_outside
+        
+        # If employee is currently outside, add the time since they left
+        if obj.currently_outside and obj.current_exit_started:
+            current_duration = (timezone.now() - obj.current_exit_started).total_seconds()
+            total += int(current_duration)
+        
+        return total
+    
+    def get_total_time_outside_formatted(self, obj):
+        """
+        Format total time outside as readable string (including current exit)
+        """
+        total_seconds = self.get_total_time_outside(obj)
+        
+        hours = total_seconds // 3600
+        minutes = (total_seconds % 3600) // 60
+        
+        if hours > 0:
+            return f"{hours} ساعة و {minutes} دقيقة"
+        return f"{minutes} دقيقة"
+    
+    class Meta:
+        model = LocationTrackingSummary
+        fields = [
+            'id', 'employee', 'employee_name', 'employee_position', 'shift', 'date',
+            'total_exits', 'total_time_outside', 'total_time_outside_formatted',
+            'longest_exit_duration', 'compliance_percentage',
+            'first_ping', 'last_ping', 'currently_outside', 'current_exit_started'
+        ]
+        read_only_fields = ['id']
+
+
+class LocationPingSerializer(serializers.Serializer):
+    """Serializer for receiving location pings from frontend"""
+    latitude = serializers.DecimalField(max_digits=10, decimal_places=8)
+    longitude = serializers.DecimalField(max_digits=11, decimal_places=8)
+    accuracy = serializers.FloatField(required=False, allow_null=True)
+    battery_level = serializers.IntegerField(required=False, allow_null=True, min_value=0, max_value=100)

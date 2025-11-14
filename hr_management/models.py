@@ -2460,5 +2460,203 @@ def calculate_weekly_hours(employee_id):
     return round(total_hours, 2)
 
 
+# ============================================================================
+# Location Tracking System - Silent Monitoring
+# ============================================================================
+
+class LocationTrackingEvent(models.Model):
+    """
+    Silent location tracking for monitoring employee movement in/out of work zones
+    Records when employee enters or exits designated work area
+    """
+    EVENT_TYPES = [
+        ('exit', 'خروج من منطقة العمل'),
+        ('enter', 'دخول لمنطقة العمل'),
+        ('ping', 'تحديث موقع'),
+    ]
+    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE,
+        related_name='location_events',
+        verbose_name='الموظف'
+    )
+    shift = models.ForeignKey(
+        WorkShift,
+        on_delete=models.CASCADE,
+        related_name='location_events',
+        null=True,
+        blank=True,
+        verbose_name='الوردية'
+    )
+    branch = models.ForeignKey(
+        Branch,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        verbose_name='الفرع',
+        help_text='الفرع الذي تم التحقق من المسافة منه'
+    )
+    
+    event_type = models.CharField(
+        max_length=10,
+        choices=EVENT_TYPES,
+        verbose_name='نوع الحدث'
+    )
+    timestamp = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='وقت الحدث'
+    )
+    latitude = models.DecimalField(
+        max_digits=10,
+        decimal_places=8,
+        verbose_name='خط العرض'
+    )
+    longitude = models.DecimalField(
+        max_digits=11,
+        decimal_places=8,
+        verbose_name='خط الطول'
+    )
+    distance_from_branch = models.IntegerField(
+        verbose_name='المسافة من الفرع (متر)',
+        help_text='المسافة المحسوبة من مركز الفرع'
+    )
+    within_radius = models.BooleanField(
+        default=False,
+        verbose_name='داخل النطاق',
+        help_text='هل الموظف داخل نطاق الحضور المسموح'
+    )
+    
+    # For calculating time outside
+    duration_outside = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name='مدة الخروج (ثواني)',
+        help_text='إجمالي الوقت خارج منطقة العمل (يُحسب عند العودة)'
+    )
+    
+    # Metadata
+    battery_level = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name='مستوى البطارية (%)'
+    )
+    accuracy = models.FloatField(
+        null=True,
+        blank=True,
+        verbose_name='دقة الموقع (متر)'
+    )
+    
+    class Meta:
+        verbose_name = 'حدث تتبع موقع'
+        verbose_name_plural = 'أحداث تتبع المواقع'
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['employee', 'timestamp']),
+            models.Index(fields=['shift', 'event_type']),
+            models.Index(fields=['timestamp']),
+        ]
+    
+    def __str__(self):
+        return f"{self.employee.name} - {self.get_event_type_display()} - {self.timestamp.strftime('%H:%M:%S')}"
+
+
+class LocationTrackingSummary(models.Model):
+    """
+    Daily summary of location tracking for each employee
+    Aggregates total time outside work area per day
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    employee = models.ForeignKey(
+        Employee,
+        on_delete=models.CASCADE,
+        related_name='location_summaries',
+        verbose_name='الموظف'
+    )
+    shift = models.ForeignKey(
+        WorkShift,
+        on_delete=models.CASCADE,
+        related_name='location_summary',
+        null=True,
+        blank=True,
+        verbose_name='الوردية'
+    )
+    date = models.DateField(
+        verbose_name='التاريخ'
+    )
+    
+    # Statistics
+    total_exits = models.IntegerField(
+        default=0,
+        verbose_name='عدد مرات الخروج'
+    )
+    total_time_outside = models.IntegerField(
+        default=0,
+        verbose_name='إجمالي الوقت خارج المنطقة (ثواني)'
+    )
+    longest_exit_duration = models.IntegerField(
+        default=0,
+        verbose_name='أطول مدة خروج (ثواني)'
+    )
+    
+    # Tracking status
+    first_ping = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='أول تحديث'
+    )
+    last_ping = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='آخر تحديث'
+    )
+    currently_outside = models.BooleanField(
+        default=False,
+        verbose_name='خارج المنطقة حالياً'
+    )
+    current_exit_started = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='وقت بدء الخروج الحالي'
+    )
+    
+    # created_at = models.DateTimeField(auto_now_add=True)
+    # updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        verbose_name = 'ملخص تتبع الموقع اليومي'
+        verbose_name_plural = 'ملخصات تتبع المواقع اليومية'
+        unique_together = ['employee', 'date']
+        ordering = ['-date', 'employee__name']
+        indexes = [
+            models.Index(fields=['employee', 'date']),
+            models.Index(fields=['date', 'currently_outside']),
+        ]
+    
+    def __str__(self):
+        return f"{self.employee.name} - {self.date} - خارج {self.total_time_outside // 60} دقيقة"
+    
+    def get_total_time_outside_formatted(self):
+        """Return total time outside in readable format"""
+        hours = self.total_time_outside // 3600
+        minutes = (self.total_time_outside % 3600) // 60
+        if hours > 0:
+            return f"{hours} ساعة و {minutes} دقيقة"
+        return f"{minutes} دقيقة"
+    
+    def get_compliance_percentage(self):
+        """Calculate percentage of time inside work area"""
+        if not self.first_ping or not self.last_ping:
+            return 100
+        
+        total_tracked_time = (self.last_ping - self.first_ping).total_seconds()
+        if total_tracked_time == 0:
+            return 100
+        
+        inside_time = total_tracked_time - self.total_time_outside
+        return round((inside_time / total_tracked_time) * 100, 1)
+
+
 # Import Tenant models
 from .tenant_models import Tenant, TenantModule, ModuleDefinition, TenantAPIKey
