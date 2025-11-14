@@ -123,10 +123,12 @@ class TenantCreateSerializer(serializers.ModelSerializer):
     
     def validate_subdomain(self, value):
         """Ensure subdomain is lowercase and valid"""
+        if not value:
+            return value
         value = value.lower().strip()
-        if not value.replace('-', '').isalnum():
+        if not value.replace('-', '').replace('_', '').isalnum():
             raise serializers.ValidationError(
-                "Subdomain can only contain letters, numbers, and hyphens"
+                "Subdomain can only contain lowercase letters, numbers, and hyphens"
             )
         return value
     
@@ -134,6 +136,7 @@ class TenantCreateSerializer(serializers.ModelSerializer):
         """Validate that custom_domain is provided when domain_type is 'custom'"""
         domain_type = data.get('domain_type', 'subdomain')
         custom_domain = data.get('custom_domain')
+        subdomain = data.get('subdomain')
         
         if domain_type == 'custom':
             if not custom_domain:
@@ -145,10 +148,24 @@ class TenantCreateSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({
                     'custom_domain': 'Invalid domain format. Example: mycompany.com'
                 })
+            
+            # Auto-generate subdomain from custom_domain if not provided
+            if not subdomain:
+                # Extract subdomain from domain (e.g., "sensor-king.ipv64.net" -> "sensor-king")
+                subdomain = custom_domain.split('.')[0].lower()
+                # Replace dots and underscores with hyphens
+                subdomain = subdomain.replace('_', '-').replace('.', '-')
+                # Remove non-alphanumeric except hyphens
+                subdomain = ''.join(c for c in subdomain if c.isalnum() or c == '-')
+                data['subdomain'] = subdomain
         
-        # If domain_type is subdomain, clear custom_domain
+        # If domain_type is subdomain, clear custom_domain and ensure subdomain exists
         if domain_type == 'subdomain':
             data['custom_domain'] = None
+            if not subdomain:
+                raise serializers.ValidationError({
+                    'subdomain': 'Subdomain is required when domain type is "subdomain"'
+                })
         
         return data
     
