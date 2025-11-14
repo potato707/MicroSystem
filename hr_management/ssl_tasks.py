@@ -200,6 +200,11 @@ def add_domain_to_nginx(domain):
 server {{
     listen 443 ssl;
     server_name {domain};
+    ssl_certificate /etc/letsencrypt/live/{domain}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/{domain}/privkey.pem;
+    include /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
 
     # Frontend (Next.js)
     location / {{
