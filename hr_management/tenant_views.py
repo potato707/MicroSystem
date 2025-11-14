@@ -84,23 +84,21 @@ class TenantViewSet(viewsets.ModelViewSet):
         """Create tenant with current user as creator"""
         tenant = serializer.save()
         
+        # Debug: Print tenant info
         print(f"🔍 Tenant created: {tenant.name}")
         print(f"🔍 Domain type: {tenant.domain_type}")
         print(f"🔍 Custom domain: {tenant.custom_domain}")
-
+        
         # If tenant has custom domain, setup SSL automatically
         if tenant.domain_type == 'custom' and tenant.custom_domain:
             print(f"✅ Condition met! Starting SSL setup for {tenant.custom_domain}")
-
             try:
                 # Import here to avoid circular imports
                 from .ssl_tasks import setup_ssl_certificate
                 print(f"✅ SSL task imported successfully")
-
                 
                 # Trigger SSL setup as background task
                 # This will wait for DNS propagation and then setup SSL
-                #setup_ssl_certificate.apply_async(
                 result = setup_ssl_certificate.apply_async(
                     args=[str(tenant.id)],
                     kwargs={'email': 'admin@localhost'},
@@ -109,11 +107,13 @@ class TenantViewSet(viewsets.ModelViewSet):
                 print(f"✅ SSL task scheduled! Task ID: {result.id}")
 
                 
+                print(f"✅ SSL task scheduled! Task ID: {result.id}")
+                
                 # Log the trigger
                 import logging
                 logger = logging.getLogger(__name__)
                 logger.info(f'🔒 SSL setup scheduled for {tenant.custom_domain} (Task ID: {result.id})')
-
+            
             except Exception as e:
                 # Don't fail tenant creation if SSL scheduling fails
                 import logging
@@ -124,7 +124,7 @@ class TenantViewSet(viewsets.ModelViewSet):
                 traceback.print_exc()
         else:
             print(f"⚠️  SSL not scheduled - domain_type: {tenant.domain_type}, custom_domain: {tenant.custom_domain}")
-
+        
         return tenant
     
     @action(detail=True, methods=['get'])

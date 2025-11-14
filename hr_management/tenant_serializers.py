@@ -210,6 +210,32 @@ class TenantCreateSerializer(serializers.ModelSerializer):
             created_by=created_by
         )
         
+        # Setup SSL automatically for custom domains
+        if tenant.domain_type == 'custom' and tenant.custom_domain:
+            try:
+                from .ssl_tasks import setup_ssl_certificate
+                import logging
+                logger = logging.getLogger(__name__)
+                
+                # Trigger SSL setup as background task
+                result = setup_ssl_certificate.apply_async(
+                    args=[str(tenant.id)],
+                    kwargs={'email': admin_email or 'admin@localhost'},
+                    countdown=300  # Wait 5 minutes before starting
+                )
+                
+                logger.info(f'🔒 SSL setup scheduled for {tenant.custom_domain} (Task ID: {result.id})')
+                print(f"✅ SSL task scheduled! Task ID: {result.id}")
+                print(f"⏰ Will start in 5 minutes for: {tenant.custom_domain}")
+            
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f'❌ Failed to schedule SSL setup: {e}')
+                print(f"❌ SSL scheduling failed: {e}")
+                import traceback
+                traceback.print_exc()
+        
         return tenant
 
 
