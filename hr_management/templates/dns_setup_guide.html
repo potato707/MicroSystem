@@ -572,7 +572,7 @@
             <div class="step-container">
                 <div class="step-header" onclick="toggleStep(3)">
                     <div class="step-number">3</div>
-                    <div class="step-title">إضافة CNAME Record</div>
+                    <div class="step-title">إضافة A Record</div>
                 </div>
                 <div class="step-content" id="step3">
                     <div class="alert alert-warning">
@@ -583,12 +583,12 @@
                     </div>
 
                     <div class="dns-form">
-                        <h3 style="margin-bottom: 20px; color: var(--dark);">📝 معلومات CNAME Record:</h3>
+                        <h3 style="margin-bottom: 20px; color: var(--dark);">📝 معلومات A Record:</h3>
                         
                         <div class="form-row">
                             <div class="form-label">Type:</div>
                             <div class="form-value">
-                                CNAME
+				    A
                                 <button class="copy-btn" onclick="copyToClipboard('CNAME')">نسخ</button>
                             </div>
                         </div>
@@ -604,7 +604,7 @@
                         <div class="form-row">
                             <div class="form-label">Value/Target:</div>
                             <div class="form-value">
-                                <span id="serverDomain">client-radar.org</span>
+                                <span id="serverDomain">74.48.196.51</span>
                                 <button class="copy-btn" onclick="copyToClipboard(document.getElementById('serverDomain').textContent)">نسخ</button>
                             </div>
                         </div>
@@ -634,12 +634,12 @@
                     <div class="step-title">إضافة WWW (اختياري)</div>
                 </div>
                 <div class="step-content" id="step4">
-                    <p style="margin-bottom: 20px;">لجعل www.client-radar.org يعمل أيضاً:</p>
+                    <p style="margin-bottom: 20px;">لجعل www.domain.com يعمل أيضاً:</p>
 
                     <div class="dns-form">
                         <div class="form-row">
                             <div class="form-label">Type:</div>
-                            <div class="form-value">CNAME</div>
+                            <div class="form-value">A</div>
                         </div>
 
                         <div class="form-row">
@@ -653,7 +653,7 @@
                         <div class="form-row">
                             <div class="form-label">Value/Target:</div>
                             <div class="form-value">
-                                <span id="userDomain">client-radar.org</span>
+                                <span id="userDomain">domain.com</span>
                                 <button class="copy-btn" onclick="copyToClipboard(document.getElementById('userDomain').textContent)">نسخ</button>
                             </div>
                         </div>
@@ -705,49 +705,11 @@
                 </div>
             </div>
 
-            <!-- Step 6 -->
-            <div class="step-container">
-                <div class="step-header" onclick="toggleStep(6)">
-                    <div class="step-number">6</div>
-                    <div class="step-title">التحقق من DNS</div>
-                </div>
-                <div class="step-content" id="step6">
-                    <div class="verification-box">
-                        <h3>🔍 تحقق من DNS الآن</h3>
-                        <p>أدخل الدومين الخاص بك للتحقق:</p>
-                        <input type="text" class="verification-input" id="domainCheck" placeholder="adamcompany.com">
-                        <button class="btn btn-success" onclick="checkDNS()">
-                            ✓ التحقق الآن
-                        </button>
-                        <div id="dnsResult" style="margin-top: 20px;"></div>
-                    </div>
-
-                    <h3 style="margin: 30px 0 20px;">أو استخدم Terminal:</h3>
-                    <div class="code-block">
-                        <button class="copy-btn" onclick="copyToClipboard('nslookup client-radar.org')" style="top: 20px; left: 20px;">نسخ</button>
-                        <code>$ nslookup client-radar.org
-
-Server:  8.8.8.8
-Address: 8.8.8.8#53
-
-Non-authoritative answer:
-Name:    client-radar.org
-Address: 123.45.67.89  ✅</code>
-                    </div>
-
-                    <div class="alert alert-success">
-                        <span class="alert-icon">✅</span>
-                        <div>
-                            <strong>إذا ظهر IP:</strong> DNS يعمل بنجاح!
-                        </div>
-                    </div>
-                </div>
-            </div>
 
             <!-- Step 7 -->
             <div class="step-container">
                 <div class="step-header" onclick="toggleStep(7)">
-                    <div class="step-number">7</div>
+                    <div class="step-number">6</div>
                     <div class="step-title">اختبار الموقع</div>
                 </div>
                 <div class="step-content" id="step7">
@@ -766,12 +728,6 @@ Address: 123.45.67.89  ✅</code>
                         </div>
                     </div>
 
-                    <div class="alert alert-warning" style="margin-top: 10px;">
-                        <span class="alert-icon">⚠️</span>
-                        <div>
-                            <strong>خطأ SSL؟</strong> لا تقلق! DNS يعمل، فقط يحتاج إعداد SSL من إدارة النظام
-                        </div>
-                    </div>
                 </div>
             </div>
 
