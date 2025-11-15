@@ -2,11 +2,12 @@
 Tenant Management API Views
 """
 from rest_framework import viewsets, status
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import action, api_view, permission_classes, authentication_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser, AllowAny
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from rest_framework.authentication import SessionAuthentication, BasicAuthentication
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.shortcuts import get_object_or_404
 from django.http import JsonResponse, FileResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -43,7 +44,7 @@ class TenantViewSet(viewsets.ModelViewSet):
     """
     queryset = Tenant.objects.all()
     permission_classes = [IsAuthenticated, IsAdminUser]
-    authentication_classes = [CsrfExemptSessionAuthentication, BasicAuthentication]
+    authentication_classes = [JWTAuthentication, CsrfExemptSessionAuthentication, BasicAuthentication]
     parser_classes = [MultiPartParser, FormParser, JSONParser]
     
     def get_permissions(self):
@@ -486,6 +487,7 @@ class ModuleDefinitionViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = ModuleDefinition.objects.all()
     serializer_class = ModuleDefinitionSerializer
     permission_classes = [IsAuthenticated]
+    authentication_classes = [JWTAuthentication, SessionAuthentication]
 
 
 @api_view(['GET'])
@@ -553,6 +555,7 @@ def get_tenant_config_by_domain(request):
 
 
 @api_view(['POST'])
+@authentication_classes([JWTAuthentication, SessionAuthentication])
 @permission_classes([IsAuthenticated, IsAdminUser])
 def check_module_access(request):
     """
@@ -597,6 +600,7 @@ def check_module_access(request):
 
 
 @api_view(['GET'])
+@authentication_classes([JWTAuthentication, SessionAuthentication])
 def tenant_statistics(request):
     """
     Get statistics about tenants (admin only)
@@ -636,6 +640,7 @@ def tenant_statistics(request):
 
 
 @api_view(['GET'])
+@authentication_classes([JWTAuthentication, SessionAuthentication])
 @permission_classes([IsAuthenticated])
 def get_current_tenant_info(request):
     """
