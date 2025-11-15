@@ -66,12 +66,13 @@ class TenantDetailSerializer(serializers.ModelSerializer):
             'full_domain',
             'logo', 'primary_color', 'secondary_color',
             'is_active', 'contact_email', 'contact_phone',
+            'ssl_enabled', 'ssl_issued_at',
             'created_at', 'updated_at', 'created_by_username',
             'modules', 'config'
         ]
         read_only_fields = [
             'id', 'full_domain', 'created_at', 'updated_at', 
-            'created_by_username'
+            'created_by_username', 'ssl_enabled', 'ssl_issued_at'
         ]
     
     def get_config(self, obj):

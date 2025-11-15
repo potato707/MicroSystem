@@ -448,6 +448,7 @@ class TenantViewSet(viewsets.ModelViewSet):
         POST /api/tenants/{id}/unlink_domain/
         
         Reverts tenant back to subdomain-only access
+        Also removes Nginx configuration and SSL certificate
         """
         tenant = self.get_object()
         
@@ -458,6 +459,30 @@ class TenantViewSet(viewsets.ModelViewSet):
             )
         
         old_domain = tenant.custom_domain
+        
+        # Cleanup Nginx and SSL
+        import logging
+        import subprocess
+        logger = logging.getLogger(__name__)
+        
+        try:
+            # Remove Nginx config
+            nginx_config = f'/etc/nginx/sites-enabled/{old_domain}'
+            if os.path.exists(nginx_config):
+                subprocess.run(['sudo', 'rm', nginx_config], check=True)
+                logger.info(f'🗑️ Removed Nginx config for {old_domain}')
+            
+            # Remove SSL certificate (optional - certbot keeps them by default)
+            # Uncomment if you want to delete certificates:
+            # subprocess.run(['sudo', 'certbot', 'delete', '--cert-name', old_domain], check=True)
+            
+            # Reload Nginx
+            subprocess.run(['sudo', 'nginx', '-s', 'reload'], check=True)
+            logger.info(f'🔄 Nginx reloaded after removing {old_domain}')
+            
+        except Exception as e:
+            logger.warning(f'⚠️ Failed to cleanup Nginx/SSL for {old_domain}: {e}')
+            # Continue anyway - database cleanup is more important
         
         # Revert to subdomain
         tenant.custom_domain = None
