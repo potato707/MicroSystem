@@ -102,12 +102,33 @@ class TenantMiddleware(MiddlewareMixin):
     
     def process_request(self, request):
         """
-        Identify tenant from subdomain or custom domain or X-Tenant-Subdomain header
-        Attach tenant to request.tenant and set in thread-local storage for DB routing
+        Identify tenant with priority order:
+        1. X-Requested-From header (custom domains)
+        2. X-Tenant-Subdomain header (subdomain-based access)
+        3. Host extraction (fallback for direct access)
         """
         tenant = None
         
-        # First, check for X-Tenant-Subdomain header (for API requests)
+        # PRIORITY 1: Check for X-Requested-From header (custom domains)
+        requested_from = request.headers.get('X-Requested-From')
+        if requested_from:
+            # Try to find tenant by custom domain
+            tenant = Tenant.objects.using('default').filter(
+                domain_type='custom',
+                custom_domain=requested_from,
+                is_active=True
+            ).first()
+            if tenant:
+                logger.info(f"✅ [P1] Tenant from X-Requested-From: {tenant.name} (domain: {requested_from})")
+                request.tenant = tenant
+                setup_tenant_database(tenant)
+                set_current_tenant(tenant)
+                set_thread_local_tenant(tenant)
+                return None
+            else:
+                logger.warning(f"⚠️ Custom domain '{requested_from}' not found in database")
+        
+        # PRIORITY 2: Check for X-Tenant-Subdomain header (subdomain-based access)
         subdomain_header = request.headers.get('X-Tenant-Subdomain')
         if subdomain_header:
             tenant = Tenant.objects.using('default').filter(
@@ -115,22 +136,20 @@ class TenantMiddleware(MiddlewareMixin):
                 is_active=True
             ).first()
             if tenant:
-                logger.info(f"✅ Tenant identified from header: {tenant.name} ({subdomain_header})")
+                logger.info(f"✅ [P2] Tenant from X-Tenant-Subdomain: {tenant.name} ({subdomain_header})")
                 request.tenant = tenant
-                
-                # Setup tenant database dynamically
                 setup_tenant_database(tenant)
-                
-                # Set in both DB router and thread-local storage
                 set_current_tenant(tenant)
                 set_thread_local_tenant(tenant)
                 return None
+            else:
+                logger.warning(f"⚠️ Subdomain '{subdomain_header}' not found in database")
         
-        # Otherwise, try to identify from host
+        # PRIORITY 3: Try to identify from Host header (fallback for direct access)
         host = request.get_host().split(':')[0]  # Remove port if present
-        logger.info(f"🌐 Extracting tenant from host: {host}")
+        logger.info(f"🌐 [P3] Fallback: Extracting tenant from host: {host}")
         
-        # PRIORITY 1: Try to find tenant by custom domain first
+        # Try custom domain first
         tenant = Tenant.objects.using('default').filter(
             domain_type='custom',
             custom_domain=host,
@@ -138,31 +157,25 @@ class TenantMiddleware(MiddlewareMixin):
         ).first()
         
         if tenant:
-            logger.info(f"✅ Tenant identified by CUSTOM DOMAIN: {tenant.name} ({host})")
-        
-        # PRIORITY 2: If not found, try to extract subdomain
-        if not tenant:
+            logger.info(f"✅ Tenant identified by custom domain from host: {tenant.name} ({host})")
+        else:
+            # Try subdomain extraction
             subdomain = self._extract_subdomain(host)
             if subdomain:
-                logger.info(f"🔍 Extracted subdomain: {subdomain}")
+                logger.info(f"🔍 Extracted subdomain from host: {subdomain}")
                 tenant = Tenant.objects.using('default').filter(
                     subdomain=subdomain,
                     is_active=True
                 ).first()
                 if tenant:
-                    logger.info(f"✅ Tenant identified by SUBDOMAIN: {tenant.name} ({subdomain})")
+                    logger.info(f"✅ Tenant identified by subdomain from host: {tenant.name} ({subdomain})")
             else:
                 logger.info(f"⚪ Main domain detected (no subdomain): {host}")
         
-        # Attach tenant to request (can be None for main domain)
+        # Attach tenant to request
         request.tenant = tenant
         if tenant:
-            logger.info(f"✅ Tenant identified from host: {tenant.name} ({tenant.subdomain})")
-            
-            # Setup tenant database dynamically
             setup_tenant_database(tenant)
-            
-            # Set in both DB router and thread-local storage
             set_current_tenant(tenant)
             set_thread_local_tenant(tenant)
         else:
