@@ -9,7 +9,8 @@ from .tenant_views import (
     get_tenant_config_by_subdomain,
     get_tenant_config_by_domain,
     check_module_access,
-    tenant_statistics
+    tenant_statistics,
+    get_current_tenant_info
 )
 from .tenant_creator_view import tenant_creator_view, tenant_management_view, dns_setup_guide_view
 
@@ -39,6 +40,9 @@ urlpatterns = [
          name='tenant-config-by-domain'),
     
     # Utility endpoints
+    path('tenants/current/', 
+         get_current_tenant_info, 
+         name='current-tenant'),
     path('tenants/check-module-access/', 
          check_module_access, 
          name='check-module-access'),

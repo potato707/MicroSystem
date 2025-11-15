@@ -633,3 +633,27 @@ def tenant_statistics(request):
         'inactive_tenants': inactive_tenants,
         'module_statistics': module_stats
     })
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_current_tenant_info(request):
+    """
+    Get current tenant information from request
+    
+    GET /api/tenants/current/
+    
+    Returns tenant info based on the subdomain/custom domain in the request
+    """
+    # Get tenant from request (set by TenantMiddleware)
+    tenant = getattr(request, 'tenant', None)
+    
+    if not tenant:
+        return Response(
+            {'error': 'No tenant found for this domain'},
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Return tenant details
+    serializer = TenantDetailSerializer(tenant)
+    return Response(serializer.data)
