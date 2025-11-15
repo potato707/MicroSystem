@@ -279,6 +279,203 @@ class TenantViewSet(viewsets.ModelViewSet):
                 {'error': f'Failed to initiate SSL setup: {str(e)}'},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+    
+    @action(detail=True, methods=['post'])
+    def link_domain(self, request, pk=None):
+        """
+        Link a custom domain to tenant and setup SSL
+        POST /api/tenants/{id}/link_domain/
+        Body: {
+            "custom_domain": "mycustomdomain.com",
+            "email": "admin@example.com"  (optional)
+        }
+        
+        Steps:
+        1. Validates domain format
+        2. Checks DNS is pointing to our server
+        3. Updates tenant with custom_domain
+        4. Triggers SSL automation
+        """
+        tenant = self.get_object()
+        custom_domain = request.data.get('custom_domain', '').strip().lower()
+        email = request.data.get('email', 'admin@localhost')
+        
+        # Validate domain format
+        if not custom_domain:
+            return Response(
+                {'error': 'custom_domain is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if not '.' in custom_domain or ' ' in custom_domain:
+            return Response(
+                {'error': 'Invalid domain format. Example: mycompany.com'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if domain is already used by another tenant
+        existing = Tenant.objects.filter(custom_domain=custom_domain).exclude(id=tenant.id).first()
+        if existing:
+            return Response(
+                {'error': f'Domain {custom_domain} is already linked to another tenant'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Verify DNS is pointing to our server
+        from .ssl_tasks import verify_dns
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        logger.info(f'🔍 Verifying DNS for {custom_domain}...')
+        
+        if not verify_dns(custom_domain):
+            return Response({
+                'error': 'DNS verification failed',
+                'message': f'Domain {custom_domain} is not pointing to our server. Please update your DNS records first.',
+                'instructions': {
+                    'step_1': f'Add an A record for {custom_domain}',
+                    'step_2': 'Point it to our server IP',
+                    'step_3': 'Wait 5-10 minutes for DNS propagation',
+                    'step_4': 'Try again'
+                },
+                'dns_verified': False
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        logger.info(f'✅ DNS verified for {custom_domain}')
+        
+        # Update tenant
+        tenant.custom_domain = custom_domain
+        tenant.domain_type = 'custom'
+        tenant.save()
+        
+        # Trigger SSL setup
+        try:
+            from .ssl_tasks import setup_ssl_certificate
+            
+            task = setup_ssl_certificate.apply_async(
+                args=[str(tenant.id)],
+                kwargs={'email': email},
+                countdown=10  # Start in 10 seconds
+            )
+            
+            logger.info(f'🔒 SSL setup scheduled for {custom_domain} (Task ID: {task.id})')
+            
+            return Response({
+                'success': True,
+                'message': f'Custom domain {custom_domain} linked successfully',
+                'domain': custom_domain,
+                'dns_verified': True,
+                'ssl_status': 'pending',
+                'ssl_task_id': task.id,
+                'tenant': {
+                    'id': str(tenant.id),
+                    'name': tenant.name,
+                    'subdomain': tenant.subdomain,
+                    'custom_domain': tenant.custom_domain,
+                    'domain_type': tenant.domain_type
+                }
+            })
+        
+        except Exception as e:
+            logger.error(f'❌ Failed to schedule SSL: {e}')
+            return Response(
+                {'error': f'Domain linked but SSL setup failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['post'])
+    def verify_domain(self, request, pk=None):
+        """
+        Verify DNS for a domain without linking it
+        POST /api/tenants/{id}/verify_domain/
+        Body: {"domain": "mycustomdomain.com"}
+        
+        Returns DNS verification status
+        """
+        domain = request.data.get('domain', '').strip().lower()
+        
+        if not domain:
+            return Response(
+                {'error': 'domain is required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        from .ssl_tasks import verify_dns
+        import socket
+        import requests
+        
+        try:
+            # Get domain IP
+            domain_ip = socket.gethostbyname(domain)
+            
+            # Get server IP
+            server_ip = requests.get('https://api.ipify.org', timeout=5).text
+            
+            dns_verified = (domain_ip == server_ip)
+            
+            return Response({
+                'domain': domain,
+                'domain_ip': domain_ip,
+                'server_ip': server_ip,
+                'dns_verified': dns_verified,
+                'message': 'DNS is correctly configured' if dns_verified else 'DNS is not pointing to our server',
+                'instructions': {
+                    'step_1': f'Add an A record for {domain}',
+                    'step_2': f'Point it to: {server_ip}',
+                    'step_3': 'Wait 5-10 minutes for DNS propagation',
+                    'current_ip': domain_ip
+                } if not dns_verified else None
+            })
+        
+        except socket.gaierror:
+            return Response({
+                'domain': domain,
+                'dns_verified': False,
+                'error': 'DNS lookup failed - domain not found',
+                'message': 'Domain does not have DNS records yet'
+            })
+        except Exception as e:
+            return Response(
+                {'error': f'Verification failed: {str(e)}'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    @action(detail=True, methods=['post'])
+    def unlink_domain(self, request, pk=None):
+        """
+        Remove custom domain from tenant
+        POST /api/tenants/{id}/unlink_domain/
+        
+        Reverts tenant back to subdomain-only access
+        """
+        tenant = self.get_object()
+        
+        if tenant.domain_type != 'custom':
+            return Response(
+                {'error': 'Tenant does not have a custom domain'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        old_domain = tenant.custom_domain
+        
+        # Revert to subdomain
+        tenant.custom_domain = None
+        tenant.domain_type = 'subdomain'
+        tenant.ssl_enabled = False
+        tenant.ssl_issued_at = None
+        tenant.save()
+        
+        return Response({
+            'success': True,
+            'message': f'Custom domain {old_domain} unlinked successfully',
+            'tenant': {
+                'id': str(tenant.id),
+                'name': tenant.name,
+                'subdomain': tenant.subdomain,
+                'domain_type': tenant.domain_type,
+                'access_url': f'https://{tenant.subdomain}.client-radar.org'
+            }
+        })
 
 
 class ModuleDefinitionViewSet(viewsets.ReadOnlyModelViewSet):

@@ -114,7 +114,7 @@ class TenantCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Tenant
         fields = [
-            'name', 'subdomain', 'domain_type', 'custom_domain',
+            'name', 'subdomain',
             'logo', 'primary_color', 'secondary_color',
             'contact_email', 'contact_phone',
             'module_keys',
@@ -133,39 +133,17 @@ class TenantCreateSerializer(serializers.ModelSerializer):
         return value
     
     def validate(self, data):
-        """Validate that custom_domain is provided when domain_type is 'custom'"""
-        domain_type = data.get('domain_type', 'subdomain')
-        custom_domain = data.get('custom_domain')
+        """Validate subdomain is required"""
         subdomain = data.get('subdomain')
         
-        if domain_type == 'custom':
-            if not custom_domain:
-                raise serializers.ValidationError({
-                    'custom_domain': 'Custom domain is required when domain type is "custom"'
-                })
-            # Validate custom domain format (basic check)
-            if not '.' in custom_domain or ' ' in custom_domain:
-                raise serializers.ValidationError({
-                    'custom_domain': 'Invalid domain format. Example: mycompany.com'
-                })
-            
-            # Auto-generate subdomain from custom_domain if not provided
-            if not subdomain:
-                # Extract subdomain from domain (e.g., "sensor-king.ipv64.net" -> "sensor-king")
-                subdomain = custom_domain.split('.')[0].lower()
-                # Replace dots and underscores with hyphens
-                subdomain = subdomain.replace('_', '-').replace('.', '-')
-                # Remove non-alphanumeric except hyphens
-                subdomain = ''.join(c for c in subdomain if c.isalnum() or c == '-')
-                data['subdomain'] = subdomain
+        if not subdomain:
+            raise serializers.ValidationError({
+                'subdomain': 'Subdomain is required'
+            })
         
-        # If domain_type is subdomain, clear custom_domain and ensure subdomain exists
-        if domain_type == 'subdomain':
-            data['custom_domain'] = None
-            if not subdomain:
-                raise serializers.ValidationError({
-                    'subdomain': 'Subdomain is required when domain type is "subdomain"'
-                })
+        # Ensure domain_type is always 'subdomain' at creation
+        data['domain_type'] = 'subdomain'
+        data['custom_domain'] = None
         
         return data
     
@@ -210,31 +188,7 @@ class TenantCreateSerializer(serializers.ModelSerializer):
             created_by=created_by
         )
         
-        # Setup SSL automatically for custom domains
-        if tenant.domain_type == 'custom' and tenant.custom_domain:
-            try:
-                from .ssl_tasks import setup_ssl_certificate
-                import logging
-                logger = logging.getLogger(__name__)
-                
-                # Trigger SSL setup as background task
-                result = setup_ssl_certificate.apply_async(
-                    args=[str(tenant.id)],
-                    kwargs={'email': admin_email or 'admin@localhost'},
-                    countdown=300  # Wait 5 minutes before starting
-                )
-                
-                logger.info(f'🔒 SSL setup scheduled for {tenant.custom_domain} (Task ID: {result.id})')
-                print(f"✅ SSL task scheduled! Task ID: {result.id}")
-                print(f"⏰ Will start in 5 minutes for: {tenant.custom_domain}")
-            
-            except Exception as e:
-                import logging
-                logger = logging.getLogger(__name__)
-                logger.error(f'❌ Failed to schedule SSL setup: {e}')
-                print(f"❌ SSL scheduling failed: {e}")
-                import traceback
-                traceback.print_exc()
+        # No SSL setup here - custom domain will be linked later from settings
         
         return tenant
 
