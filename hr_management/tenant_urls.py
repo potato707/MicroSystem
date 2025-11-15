@@ -28,9 +28,6 @@ urlpatterns = [
     # DNS Setup Guide - Public guide for setting up custom domains
     path('dns-setup-guide/', dns_setup_guide_view, name='dns-setup-guide'),
     
-    # Router URLs
-    path('', include(router.urls)),
-    
     # Public tenant config endpoints
     path('public/tenant-config/<str:subdomain>/', 
          get_tenant_config_by_subdomain, 
@@ -39,7 +36,7 @@ urlpatterns = [
          get_tenant_config_by_domain, 
          name='tenant-config-by-domain'),
     
-    # Utility endpoints
+    # Utility endpoints - MUST come BEFORE router to avoid conflicts
     path('tenants/current/', 
          get_current_tenant_info, 
          name='current-tenant'),
@@ -49,4 +46,7 @@ urlpatterns = [
     path('tenants/statistics/', 
          tenant_statistics, 
          name='tenant-statistics'),
+    
+    # Router URLs - MUST come LAST
+    path('', include(router.urls)),
 ]
