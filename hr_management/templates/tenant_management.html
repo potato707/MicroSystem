@@ -845,7 +845,7 @@
                 إدارة العملاء (Tenants)
             </h1>
             <div class="header-actions">
-                <a href="/api/create-tenant/" class="btn btn-primary">
+                <a href="/s/api/create-tenant/" class="btn btn-primary">
                     إضافة عميل جديد
                 </a>
                 <button class="btn btn-secondary" onclick="refreshData()">
@@ -914,7 +914,7 @@
             <div class="empty-state-icon"></div>
             <h3>لا يوجد عملاء</h3>
             <p>ابدأ بإضافة عميل جديد للنظام</p>
-            <a href="/api/create-tenant/" class="btn btn-primary">إضافة عميل جديد</a>
+            <a href="/s/api/create-tenant/" class="btn btn-primary">إضافة عميل جديد</a>
         </div>
     </div>
 
@@ -1061,7 +1061,7 @@
                 document.getElementById('tenantsGrid').style.display = 'none';
                 document.getElementById('emptyState').style.display = 'none';
 
-                const response = await fetch('/api/tenants/', {
+                const response = await fetch('/s/api/tenants/', {
                     credentials: 'include'
                 });
                 const data = await response.json();
@@ -1078,7 +1078,7 @@
 
         async function loadStatistics() {
             try {
-                const response = await fetch('/api/tenants/statistics/', {
+                const response = await fetch('/s/api/tenants/statistics/', {
                     credentials: 'include'
                 });
                 const data = await response.json();
@@ -1175,7 +1175,7 @@
 
         async function loadTenantModules(tenantId) {
             try {
-                const response = await fetch(`/api/tenants/${tenantId}/modules/`, {
+                const response = await fetch(`/s/api/tenants/${tenantId}/modules/`, {
                     credentials: 'include'
                 });
                 const modules = await response.json();
@@ -1249,7 +1249,7 @@
             selectedTenantsEdit.clear();
             
             try {
-                const response = await fetch('/api/tenants/', { credentials: 'include' });
+                const response = await fetch('/s/api/tenants/', { credentials: 'include' });
                 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -1407,7 +1407,7 @@
             modulesGrid.innerHTML = '<div style="grid-column: 1 / -1; text-align: center; color: #6c757d;">جاري تحميل الموديولات...</div>';
 
             try {
-                const response = await fetch(`/api/tenants/${tenantId}/modules/`, {
+                const response = await fetch(`/s/api/tenants/${tenantId}/modules/`, {
                     credentials: 'include'
                 });
                 const modules = await response.json();
@@ -1475,7 +1475,7 @@
 
             try {
                 // Update tenant basic info
-                const response = await fetch(`/api/tenants/${id}/`, {
+                const response = await fetch(`/s/api/tenants/${id}/`, {
                     method: 'PATCH',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1510,7 +1510,7 @@
                 const isEnabled = checkbox.checked;
                 
                 // Send update request for each module
-                const promise = fetch(`/api/tenants/${tenantId}/update_module/`, {
+                const promise = fetch(`/s/api/tenants/${tenantId}/update_module/`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1549,7 +1549,7 @@
             if (!currentDeleteId) return;
 
             try {
-                const response = await fetch(`/api/tenants/${currentDeleteId}/`, {
+                const response = await fetch(`/s/api/tenants/${currentDeleteId}/`, {
                     method: 'DELETE',
                     credentials: 'include' // Important: send cookies
                 });
