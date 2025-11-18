@@ -237,28 +237,28 @@ class TenantModuleAccessMiddleware(MiddlewareMixin):
     
     # Map URL patterns to required modules
     MODULE_URL_PATTERNS = {
-        '/hr/employees/': 'employees',
-        '/hr/attendance/': 'attendance',
-        '/hr/wallet/': 'wallet',
-        '/hr/tasks/': 'tasks',
-        '/hr/complaints/': 'complaints',
-        '/hr/shifts/': 'shifts',
-        '/hr/reports/': 'reports',
-        # Also support /api/ prefix for compatibility
-        '/api/employees/': 'employees',
-        '/api/attendance/': 'attendance',
-        '/api/wallet/': 'wallet',
-        '/api/tasks/': 'tasks',
-        '/api/complaints/': 'complaints',
-        '/api/shifts/': 'shifts',
-        '/api/reports/': 'reports',
+        '/s/hr/employees/': 'employees',
+        '/s/hr/attendance/': 'attendance',
+        '/s/hr/wallet/': 'wallet',
+        '/s/hr/tasks/': 'tasks',
+        '/s/hr/complaints/': 'complaints',
+        '/s/hr/shifts/': 'shifts',
+        '/s/hr/reports/': 'reports',
+        # Also support /s/api/ prefix for compatibility
+        '/s/api/employees/': 'employees',
+        '/s/api/attendance/': 'attendance',
+        '/s/api/wallet/': 'wallet',
+        '/s/api/tasks/': 'tasks',
+        '/s/api/complaints/': 'complaints',
+        '/s/api/shifts/': 'shifts',
+        '/s/api/reports/': 'reports',
     }
-    
+
     # URLs that should bypass module checks
     EXEMPT_URLS = [
-        '/api/auth/',
-        '/api/tenants/',
-        '/api/public/',
+        '/s/api/auth/',
+        '/s/api/tenants/',
+        '/s/api/public/',
         '/admin/',
         '/media/',
         '/static/',

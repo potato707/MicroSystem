@@ -13,59 +13,59 @@ from .tenant_db_router import get_current_tenant
 # Map URL patterns to module keys
 URL_MODULE_MAP = {
     # Employee Management
-    '/hr/employees/': 'employees',
-    '/hr/documents/': 'employees',
-    '/hr/notes/': 'employees',
-    '/hr/employee-dashboard-stats/': 'employees',
-    '/hr/office-locations/': 'employees',
-    '/hr/office-location/': 'employees',
-    
+    '/s/hr/employees/': 'employees',
+    '/s/hr/documents/': 'employees',
+    '/s/hr/notes/': 'employees',
+    '/s/hr/employee-dashboard-stats/': 'employees',
+    '/s/hr/office-locations/': 'employees',
+    '/s/hr/office-location/': 'employees',
+
     # Attendance
-    '/hr/attendance/': 'attendance',
-    
+    '/s/hr/attendance/': 'attendance',
+
     # Shifts & Scheduling
-    '/hr/shifts/': 'shifts',
-    '/hr/shift-attendance/': 'shifts',
-    '/hr/shift-schedules/': 'shifts',
-    '/hr/shift-overrides/': 'shifts',
-    
+    '/s/hr/shifts/': 'shifts',
+    '/s/hr/shift-attendance/': 'shifts',
+    '/s/hr/shift-schedules/': 'shifts',
+    '/s/hr/shift-overrides/': 'shifts',
+
     # Leave Management
-    '/hr/leave_requests/': 'leaves',
-    
+    '/s/hr/leave_requests/': 'leaves',
+
     # Wallet System (module_key is 'wallet' singular, not 'wallets')
-    '/hr/wallet/': 'wallet',
-    '/hr/wallet-system/': 'wallet',
-    '/hr/multi-wallet/': 'wallet',
-    '/hr/wallet-transfers/': 'wallet',
-    '/hr/central-wallet/': 'wallet',
-    '/hr/reimbursements/': 'wallet',
-    
+    '/s/hr/wallet/': 'wallet',
+    '/s/hr/wallet-system/': 'wallet',
+    '/s/hr/multi-wallet/': 'wallet',
+    '/s/hr/wallet-transfers/': 'wallet',
+    '/s/hr/central-wallet/': 'wallet',
+    '/s/hr/reimbursements/': 'wallet',
+
     # Tasks
-    '/hr/tasks/': 'tasks',
-    '/hr/subtasks/': 'tasks',
-    '/hr/task-reports/': 'tasks',
-    '/hr/task-comments/': 'tasks',
-    '/hr/manager/dashboard/': 'tasks',
-    
+    '/s/hr/tasks/': 'tasks',
+    '/s/hr/subtasks/': 'tasks',
+    '/s/hr/task-reports/': 'tasks',
+    '/s/hr/task-comments/': 'tasks',
+    '/s/hr/manager/dashboard/': 'tasks',
+
     # Teams
-    '/hr/teams/': 'teams',
-    '/hr/team-memberships/': 'teams',
-    '/hr/team-tasks/': 'teams',
-    
+    '/s/hr/teams/': 'teams',
+    '/s/hr/team-memberships/': 'teams',
+    '/s/hr/team-tasks/': 'teams',
+
     # Internal Complaints (Employee)
-    '/hr/complaints/': 'complaints',
-    
+    '/s/hr/complaints/': 'complaints',
+
     # Client Complaint System
-    '/hr/complaint-categories/': 'complaints',
-    '/hr/client-complaints/': 'complaints',
-    '/hr/client-complaint-statuses/': 'complaints',
-    '/hr/ticket-thresholds/': 'complaints',
-    '/hr/ticket-automation/': 'complaints',
-    '/hr/team-complaints/': 'complaints',
-    '/hr/complaint-admin-permissions/': 'complaints',
-    
+    '/s/hr/complaint-categories/': 'complaints',
+    '/s/hr/client-complaints/': 'complaints',
+    '/s/hr/client-complaint-statuses/': 'complaints',
+    '/s/hr/ticket-thresholds/': 'complaints',
+    '/s/hr/ticket-automation/': 'complaints',
+    '/s/hr/team-complaints/': 'complaints',
+    '/s/hr/complaint-admin-permissions/': 'complaints',
+
     # Notifications
-    '/hr/notifications/': 'notifications',
+    '/s/hr/notifications/': 'notifications',
 }
 
 
@@ -88,12 +88,12 @@ class ModuleAccessMiddleware:
         path = request.path
         
         if (path.startswith('/admin/') or
-            path.startswith('/hr/api/token/') or
-            path.startswith('/hr/current-user/') or  # Always allow current user endpoint
-            path.startswith('/hr/create-tenant/') or
-            path.startswith('/hr/public/') or
-            path.startswith('/hr/client-portal/') or
-            path.startswith('/hr/client/auth/') or
+            path.startswith('/s/hr/api/token/') or
+            path.startswith('/s/hr/current-user/') or  # Always allow current user endpoint
+            path.startswith('/s/hr/create-tenant/') or
+            path.startswith('/s/hr/public/') or
+            path.startswith('/s/hr/client-portal/') or
+            path.startswith('/s/hr/client/auth/') or
             path.startswith('/static/') or
             path.startswith('/media/')):
             return self.get_response(request)
