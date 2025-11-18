@@ -44,28 +44,28 @@ const makeAuthRequest = async (url, options = {}) => {
  * Get all tenants
  */
 export const getTenants = async () => {
-  return makeAuthRequest('/api/tenants/');
+  return makeAuthRequest('/s/api/tenants/');
 };
 
 /**
  * Get tenant by ID
  */
 export const getTenant = async (id) => {
-  return makeAuthRequest(`/api/tenants/${id}/`);
+  return makeAuthRequest(`/s/api/tenants/${id}/`);
 };
 
 /**
  * Get tenant configuration
  */
 export const getTenantConfig = async (id) => {
-  return makeAuthRequest(`/api/tenants/${id}/config/`);
+  return makeAuthRequest(`/s/api/tenants/${id}/config/`);
 };
 
 /**
  * Get tenant config by subdomain (public endpoint)
  */
 export const getTenantConfigBySubdomain = async (subdomain) => {
-  const response = await fetch(`${API_BASE_URL}/api/public/tenant-config/${subdomain}/`);
+  const response = await fetch(`${API_BASE_URL}/s/api/public/tenant-config/${subdomain}/`);
   if (!response.ok) {
     throw new Error('Tenant not found');
   }
@@ -114,7 +114,7 @@ export const createTenant = async (tenantData) => {
     });
   }
   
-  return makeAuthRequest('/api/tenants/', {
+  return makeAuthRequest('/s/api/tenants/', {
     method: 'POST',
     body: formData,
   });
@@ -136,7 +136,7 @@ export const updateTenant = async (id, tenantData) => {
     }
   });
   
-  return makeAuthRequest(`/api/tenants/${id}/`, {
+  return makeAuthRequest(`/s/api/tenants/${id}/`, {
     method: 'PATCH',
     body: formData,
   });
@@ -146,7 +146,7 @@ export const updateTenant = async (id, tenantData) => {
  * Delete tenant
  */
 export const deleteTenant = async (id) => {
-  return makeAuthRequest(`/api/tenants/${id}/`, {
+  return makeAuthRequest(`/s/api/tenants/${id}/`, {
     method: 'DELETE',
   });
 };
@@ -155,21 +155,21 @@ export const deleteTenant = async (id) => {
  * Get all available modules
  */
 export const getModuleDefinitions = async () => {
-  return makeAuthRequest('/api/modules/');
+  return makeAuthRequest('/s/api/modules/');
 };
 
 /**
  * Get tenant modules
  */
 export const getTenantModules = async (tenantId) => {
-  return makeAuthRequest(`/api/tenants/${tenantId}/modules/`);
+  return makeAuthRequest(`/s/api/tenants/${tenantId}/modules/`);
 };
 
 /**
  * Update tenant module status
  */
 export const updateTenantModule = async (tenantId, moduleKey, isEnabled) => {
-  return makeAuthRequest(`/api/tenants/${tenantId}/update_module/`, {
+  return makeAuthRequest(`/s/api/tenants/${tenantId}/update_module/`, {
     method: 'POST',
     body: JSON.stringify({
       module_key: moduleKey,
@@ -182,7 +182,7 @@ export const updateTenantModule = async (tenantId, moduleKey, isEnabled) => {
  * Regenerate tenant config
  */
 export const regenerateTenantConfig = async (tenantId) => {
-  return makeAuthRequest(`/api/tenants/${tenantId}/regenerate_config/`, {
+  return makeAuthRequest(`/s/api/tenants/${tenantId}/regenerate_config/`, {
     method: 'POST',
   });
 };
@@ -191,7 +191,7 @@ export const regenerateTenantConfig = async (tenantId) => {
  * Copy frontend template to tenant folder
  */
 export const copyFrontendTemplate = async (tenantId) => {
-  return makeAuthRequest(`/api/tenants/${tenantId}/copy_frontend/`, {
+  return makeAuthRequest(`/s/api/tenants/${tenantId}/copy_frontend/`, {
     method: 'POST',
   });
 };
@@ -200,7 +200,7 @@ export const copyFrontendTemplate = async (tenantId) => {
  * Initialize module definitions
  */
 export const initializeModules = async () => {
-  return makeAuthRequest('/api/tenants/initialize_modules/', {
+  return makeAuthRequest('/s/api/tenants/initialize_modules/', {
     method: 'POST',
   });
 };
@@ -209,14 +209,14 @@ export const initializeModules = async () => {
  * Get tenant statistics
  */
 export const getTenantStatistics = async () => {
-  return makeAuthRequest('/api/tenants/statistics/');
+  return makeAuthRequest('/s/api/tenants/statistics/');
 };
 
 /**
  * Check module access for a tenant
  */
 export const checkModuleAccess = async (subdomain, moduleKey) => {
-  return makeAuthRequest('/api/tenants/check-module-access/', {
+  return makeAuthRequest('/s/api/tenants/check-module-access/', {
     method: 'POST',
     body: JSON.stringify({
       subdomain,

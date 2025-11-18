@@ -237,28 +237,110 @@ class TenantModuleAccessMiddleware(MiddlewareMixin):
     
     # Map URL patterns to required modules
     MODULE_URL_PATTERNS = {
-        '/s/hr/employees/': 'employees',
-        '/s/hr/attendance/': 'attendance',
-        '/s/hr/wallet/': 'wallet',
-        '/s/hr/tasks/': 'tasks',
-        '/s/hr/complaints/': 'complaints',
-        '/s/hr/shifts/': 'shifts',
-        '/s/hr/reports/': 'reports',
-        # Also support /s/api/ prefix for compatibility
-        '/s/api/employees/': 'employees',
-        '/s/api/attendance/': 'attendance',
-        '/s/api/wallet/': 'wallet',
-        '/s/api/tasks/': 'tasks',
-        '/s/api/complaints/': 'complaints',
-        '/s/api/shifts/': 'shifts',
-        '/s/api/reports/': 'reports',
+        # ========== HR_SYSTEM ==========
+        '/s/hr/employees/': 'HR_SYSTEM',
+        '/s/hr/employee-dashboard-stats/': 'HR_SYSTEM',
+        '/s/hr/attendance/': 'HR_SYSTEM',
+        '/s/hr/leave_requests/': 'HR_SYSTEM',
+        '/s/hr/location-ping/': 'HR_SYSTEM',
+        '/s/hr/location-tracking-report/': 'HR_SYSTEM',
+        '/s/hr/location-tracking-events/': 'HR_SYSTEM',
+        '/s/hr/employee-branches/': 'HR_SYSTEM',
+        '/s/hr/daily-schedules/': 'HR_SYSTEM',
+        '/s/hr/shifts/': 'HR_SYSTEM',
+        '/s/hr/shift-attendance/': 'HR_SYSTEM',
+        '/s/hr/shift-schedules/': 'HR_SYSTEM',
+        '/s/hr/shift-overrides/': 'HR_SYSTEM',
+        '/s/api/employees/': 'HR_SYSTEM',
+        '/s/api/attendance/': 'HR_SYSTEM',
+        '/s/api/shifts/': 'HR_SYSTEM',
+
+        # ========== TASK_SYSTEM ==========
+        '/s/hr/tasks/': 'TASK_SYSTEM',
+        '/s/hr/subtasks/': 'TASK_SYSTEM',
+        '/s/hr/task-reports/': 'TASK_SYSTEM',
+        '/s/hr/task-comments/': 'TASK_SYSTEM',
+        '/s/hr/manager/dashboard/': 'TASK_SYSTEM',
+        '/s/hr/share-links/': 'TASK_SYSTEM',
+        '/s/hr/teams/': 'TASK_SYSTEM',
+        '/s/hr/team-memberships/': 'TASK_SYSTEM',
+        '/s/hr/team-tasks/': 'TASK_SYSTEM',
+        '/s/api/tasks/': 'TASK_SYSTEM',
+        '/s/api/teams/': 'TASK_SYSTEM',
+
+        # ========== COMPLAINT_SYSTEM ==========
+        '/s/hr/complaints/': 'COMPLAINT_SYSTEM',
+        '/s/hr/complaint-categories/': 'COMPLAINT_SYSTEM',
+        '/s/hr/client-complaints/': 'COMPLAINT_SYSTEM',
+        '/s/hr/client-complaint-statuses/': 'COMPLAINT_SYSTEM',
+        '/s/hr/ticket-thresholds/': 'COMPLAINT_SYSTEM',
+        '/s/hr/ticket-automation/': 'COMPLAINT_SYSTEM',
+        '/s/hr/team-complaints/': 'COMPLAINT_SYSTEM',
+        '/s/hr/complaint-admin-permissions/': 'COMPLAINT_SYSTEM',
+        '/s/hr/client/complaints/': 'COMPLAINT_SYSTEM',
+        '/s/hr/client/categories/': 'COMPLAINT_SYSTEM',
+        '/s/api/complaints/': 'COMPLAINT_SYSTEM',
+
+        # ========== POS_SYSTEM ==========
+        '/s/pos/client-types/': 'POS_SYSTEM',
+        '/s/pos/clients/': 'POS_SYSTEM',
+        '/s/pos/products-old/': 'POS_SYSTEM',
+        '/s/pos/distributions/': 'POS_SYSTEM',
+        '/s/pos/dashboard/': 'POS_SYSTEM',
+
+        # ========== BRANCH_SYSTEM ==========
+        '/s/hr/branches/': 'BRANCH_SYSTEM',
+        '/s/hr/office-locations/': 'BRANCH_SYSTEM',
+        '/s/hr/office-location/': 'BRANCH_SYSTEM',
+
+        # ========== INVENTORY_SYSTEM ==========
+        '/s/pos/inventory/': 'INVENTORY_SYSTEM',
+        '/s/pos/product-stocks/': 'INVENTORY_SYSTEM',
+
+        # ========== DOCUMENT_SYSTEM ==========
+        '/s/hr/documents/': 'DOCUMENT_SYSTEM',
+        '/s/hr/notes/': 'DOCUMENT_SYSTEM',
+
+        # ========== PRODUCT_SYSTEM ==========
+        '/s/products/categories/': 'PRODUCT_SYSTEM',
+        '/s/products/units/': 'PRODUCT_SYSTEM',
+        '/s/products/products/': 'PRODUCT_SYSTEM',
+        '/s/pos/product-categories/': 'PRODUCT_SYSTEM',
+        '/s/pos/product-units/': 'PRODUCT_SYSTEM',
+        '/s/pos/category-units/': 'PRODUCT_SYSTEM',
+        '/s/pos/products/': 'PRODUCT_SYSTEM',
+
+        # ========== NOTIFICATION_SYSTEM ==========
+        '/s/hr/notifications/': 'NOTIFICATION_SYSTEM',
+
+        # ========== ANALYTICS_SYSTEM ==========
+        '/s/hr/employee-dashboard-stats/': 'ANALYTICS_SYSTEM',
+        '/s/pos/dashboard/stats/': 'ANALYTICS_SYSTEM',
+        '/s/api/reports/': 'ANALYTICS_SYSTEM',
+
+        # ========== FINANCIAL_SYSTEM ==========
+        '/s/hr/wallet/': 'FINANCIAL_SYSTEM',
+        '/s/hr/wallet-system/': 'FINANCIAL_SYSTEM',
+        '/s/hr/multi-wallet/': 'FINANCIAL_SYSTEM',
+        '/s/hr/wallet-transfers/': 'FINANCIAL_SYSTEM',
+        '/s/hr/central-wallet/': 'FINANCIAL_SYSTEM',
+        '/s/hr/reimbursements/': 'FINANCIAL_SYSTEM',
+        '/s/api/wallet/': 'FINANCIAL_SYSTEM',
     }
 
     # URLs that should bypass module checks
     EXEMPT_URLS = [
         '/s/api/auth/',
+        '/s/api/token/',
         '/s/api/tenants/',
         '/s/api/public/',
+        '/s/api/modules/',
+        '/s/hr/api/token/',
+        '/s/hr/current-user/',
+        '/s/hr/create-tenant/',
+        '/s/hr/public/',
+        '/s/hr/client-portal/',
+        '/s/hr/client/auth/',
         '/admin/',
         '/media/',
         '/static/',

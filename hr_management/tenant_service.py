@@ -243,76 +243,100 @@ class TenantService:
         """
         default_modules = [
             {
-                'module_key': 'employees',
-                'module_name': 'Employee Management',
-                'description': 'Manage employees, departments, and positions',
+                'module_key': 'HR_SYSTEM',
+                'module_name': 'HR Management System',
+                'description': 'Manage employees, attendance, leaves, and HR operations',
                 'icon': 'users',
                 'is_core': True,
                 'sort_order': 1
             },
             {
-                'module_key': 'attendance',
-                'module_name': 'Attendance Tracking',
-                'description': 'Track employee attendance and working hours',
-                'icon': 'clock',
+                'module_key': 'TASK_SYSTEM',
+                'module_name': 'Task Management System',
+                'description': 'Create, assign, and track tasks and subtasks',
+                'icon': 'check-square',
                 'is_core': False,
                 'sort_order': 2
             },
             {
-                'module_key': 'wallet',
-                'module_name': 'Wallet & Salary',
-                'description': 'Manage employee wallets, salaries, and transactions',
-                'icon': 'wallet',
+                'module_key': 'COMPLAINT_SYSTEM',
+                'module_name': 'Complaint Management System',
+                'description': 'Handle client complaints and support tickets',
+                'icon': 'message-square',
                 'is_core': False,
                 'sort_order': 3
             },
             {
-                'module_key': 'tasks',
-                'module_name': 'Task Management',
-                'description': 'Assign and track tasks and projects',
-                'icon': 'clipboard-list',
+                'module_key': 'POS_SYSTEM',
+                'module_name': 'POS Management System',
+                'description': 'Point of Sale, clients, and distribution management',
+                'icon': 'shopping-cart',
                 'is_core': False,
                 'sort_order': 4
             },
             {
-                'module_key': 'complaints',
-                'module_name': 'Complaint System',
-                'description': 'Handle client complaints and support tickets',
-                'icon': 'message-square',
+                'module_key': 'BRANCH_SYSTEM',
+                'module_name': 'Branch Management System',
+                'description': 'Manage branches, locations, and office assignments',
+                'icon': 'map-pin',
                 'is_core': False,
                 'sort_order': 5
             },
             {
-                'module_key': 'teams',
-                'module_name': 'Team Management',
-                'description': 'Create and manage teams and team members',
-                'icon': 'users-cog',
+                'module_key': 'INVENTORY_SYSTEM',
+                'module_name': 'Inventory Management System',
+                'description': 'Track inventory, stock levels, and distributions',
+                'icon': 'package',
                 'is_core': False,
                 'sort_order': 6
             },
             {
-                'module_key': 'shifts',
-                'module_name': 'Shift Scheduling',
-                'description': 'Manage employee shifts and schedules',
-                'icon': 'calendar',
+                'module_key': 'DOCUMENT_SYSTEM',
+                'module_name': 'Document Management System',
+                'description': 'Manage employee documents and notes',
+                'icon': 'file-text',
                 'is_core': False,
                 'sort_order': 7
             },
             {
-                'module_key': 'reports',
-                'module_name': 'Reports & Analytics',
-                'description': 'View detailed reports and analytics',
-                'icon': 'bar-chart',
+                'module_key': 'PRODUCT_SYSTEM',
+                'module_name': 'Product Management System',
+                'description': 'Advanced product catalog, categories, and units',
+                'icon': 'box',
                 'is_core': False,
                 'sort_order': 8
             },
             {
-                'module_key': 'notifications',
-                'module_name': 'Notifications',
+                'module_key': 'NOTIFICATION_SYSTEM',
+                'module_name': 'Notification System',
                 'description': 'Email and system notifications',
                 'icon': 'bell',
                 'is_core': True,
                 'sort_order': 9
+            },
+            {
+                'module_key': 'ANALYTICS_SYSTEM',
+                'module_name': 'Analytics & Reporting System',
+                'description': 'View detailed reports, analytics, and dashboards',
+                'icon': 'bar-chart',
+                'is_core': False,
+                'sort_order': 10
+            },
+            {
+                'module_key': 'SETTINGS_SYSTEM',
+                'module_name': 'Settings & Configuration System',
+                'description': 'System settings, configurations, and preferences',
+                'icon': 'settings',
+                'is_core': True,
+                'sort_order': 11
+            },
+            {
+                'module_key': 'FINANCIAL_SYSTEM',
+                'module_name': 'Financial Management System',
+                'description': 'Manage wallets, salaries, reimbursements, and transactions',
+                'icon': 'dollar-sign',
+                'is_core': False,
+                'sort_order': 12
             },
         ]
         

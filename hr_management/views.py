@@ -93,7 +93,7 @@ class StandardResultsSetPagination(PageNumberPagination):
 
 class BranchViewSet(viewsets.ModelViewSet):
     """Branch management - multi-location support"""
-    module_key = 'employees'  # Require employees module access
+    module_key = 'BRANCH_SYSTEM'  # Require branch module access
     queryset = Branch.objects.all()
     serializer_class = BranchSerializer
     pagination_class = StandardResultsSetPagination
@@ -223,7 +223,7 @@ class EmployeeBranchViewSet(viewsets.ModelViewSet):
     Employee-Branch Assignment management
     Allows assigning employees to branches with specific schedules
     """
-    module_key = 'employees'
+    module_key = 'BRANCH_SYSTEM'
     queryset = EmployeeBranch.objects.all()
     serializer_class = EmployeeBranchSerializer
     pagination_class = StandardResultsSetPagination
@@ -320,7 +320,7 @@ class DailyScheduleViewSet(viewsets.ModelViewSet):
     Daily Schedule management for employee-branch assignments
     Manages individual day schedules with different times and settings
     """
-    module_key = 'employees'
+    module_key = 'BRANCH_SYSTEM'
     queryset = DailySchedule.objects.all()
     serializer_class = DailyScheduleSerializer
     pagination_class = StandardResultsSetPagination
@@ -446,8 +446,8 @@ class DailyScheduleViewSet(viewsets.ModelViewSet):
 
 
 class EmployeeViewSet(viewsets.ModelViewSet):
-    """Employee management - requires 'employees' module"""
-    module_key = 'employees'  # Require employees module access
+    """Employee management - requires HR_SYSTEM module"""
+    module_key = 'HR_SYSTEM'  # Require HR module access
     queryset = Employee.objects.all()
     serializer_class = EmployeeSerializer
     pagination_class = StandardResultsSetPagination

@@ -3,14 +3,26 @@
   "domain": "test-domain.ipv64.de",
   "subdomain": "test-domain",
   "modules": {
-    "attendance": true,
-    "complaints": true,
+    "ANALYTICS_SYSTEM": true,
+    "BRANCH_SYSTEM": false,
+    "COMPLAINT_SYSTEM": true,
+    "DOCUMENT_SYSTEM": false,
+    "FINANCIAL_SYSTEM": true,
+    "HR_SYSTEM": true,
+    "INVENTORY_SYSTEM": false,
+    "NOTIFICATION_SYSTEM": true,
+    "POS_SYSTEM": false,
+    "PRODUCT_SYSTEM": false,
+    "SETTINGS_SYSTEM": true,
+    "TASK_SYSTEM": true,
+    "attendance": false,
+    "complaints": false,
     "employees": true,
     "notifications": true,
-    "reports": true,
-    "shifts": true,
-    "tasks": true,
-    "wallet": true
+    "reports": false,
+    "shifts": false,
+    "tasks": false,
+    "wallet": false
   },
   "theme": {
     "primary": "#3498db",
@@ -23,5 +35,5 @@
   },
   "is_active": true,
   "created_at": "2025-11-14T14:04:57.029432+00:00",
-  "updated_at": "2025-11-14T14:04:57.304917+00:00"
+  "updated_at": "2025-11-14T14:15:04.848509+00:00"
 }

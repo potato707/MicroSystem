@@ -12,22 +12,22 @@ from drf_spectacular.views import (
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('hr/', include('hr_management.urls')),  # <--- include HR app routes
-    path('pos/', include('pos_management.urls')),  # <--- POS Management Module
-    path('products/', include('product_management.urls')),  # <--- NEW: Advanced Product Management (separated from POS)
-    path('api/', include('hr_management.tenant_urls')),  # <--- Tenant management API
-    
+    path('s/hr/', include('hr_management.urls')),  # <--- include HR app routes
+    path('s/pos/', include('pos_management.urls')),  # <--- POS Management Module
+    path('s/products/', include('product_management.urls')),  # <--- NEW: Advanced Product Management (separated from POS)
+    path('s/api/', include('hr_management.tenant_urls')),  # <--- Tenant management API
+
     # Authentication endpoints
-    path("api/token/", CustomTokenObtainPairView.as_view(), name="token_obtain_pair"),
-    path("api/auth/login/", CustomTokenObtainPairView.as_view(), name="auth_login"),  # Alias for frontend
-    path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
-    
+    path("s/api/token/", CustomTokenObtainPairView.as_view(), name="token_obtain_pair"),
+    path("s/api/auth/login/", CustomTokenObtainPairView.as_view(), name="auth_login"),  # Alias for frontend
+    path("s/api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
+
     # schema in raw OpenAPI json
-    path("api/schema/", SpectacularAPIView.as_view(), name="schema"),
+    path("s/api/schema/", SpectacularAPIView.as_view(), name="schema"),
     # Swagger UI
-    path("api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    path("s/api/docs/", SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     # ReDoc UI
-    path("api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
+    path("s/api/redoc/", SpectacularRedocView.as_view(url_name="schema"), name="redoc"),
 ]
 
 # Serve media files in development

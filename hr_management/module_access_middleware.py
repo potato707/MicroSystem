@@ -12,60 +12,87 @@ from .tenant_db_router import get_current_tenant
 
 # Map URL patterns to module keys
 URL_MODULE_MAP = {
-    # Employee Management
-    '/s/hr/employees/': 'employees',
-    '/s/hr/documents/': 'employees',
-    '/s/hr/notes/': 'employees',
-    '/s/hr/employee-dashboard-stats/': 'employees',
-    '/s/hr/office-locations/': 'employees',
-    '/s/hr/office-location/': 'employees',
+    # ========== HR_SYSTEM ==========
+    '/s/hr/employees/': 'HR_SYSTEM',
+    '/s/hr/employee-dashboard-stats/': 'HR_SYSTEM',
+    '/s/hr/attendance/': 'HR_SYSTEM',
+    '/s/hr/leave_requests/': 'HR_SYSTEM',
+    '/s/hr/location-ping/': 'HR_SYSTEM',
+    '/s/hr/location-tracking-report/': 'HR_SYSTEM',
+    '/s/hr/location-tracking-events/': 'HR_SYSTEM',
+    '/s/hr/employee-branches/': 'HR_SYSTEM',
+    '/s/hr/daily-schedules/': 'HR_SYSTEM',
+    '/s/hr/shifts/': 'HR_SYSTEM',
+    '/s/hr/shift-attendance/': 'HR_SYSTEM',
+    '/s/hr/shift-schedules/': 'HR_SYSTEM',
+    '/s/hr/shift-overrides/': 'HR_SYSTEM',
 
-    # Attendance
-    '/s/hr/attendance/': 'attendance',
+    # ========== TASK_SYSTEM ==========
+    '/s/hr/tasks/': 'TASK_SYSTEM',
+    '/s/hr/subtasks/': 'TASK_SYSTEM',
+    '/s/hr/task-reports/': 'TASK_SYSTEM',
+    '/s/hr/task-comments/': 'TASK_SYSTEM',
+    '/s/hr/manager/dashboard/': 'TASK_SYSTEM',
+    '/s/hr/share-links/': 'TASK_SYSTEM',
+    '/s/hr/teams/': 'TASK_SYSTEM',
+    '/s/hr/team-memberships/': 'TASK_SYSTEM',
+    '/s/hr/team-tasks/': 'TASK_SYSTEM',
 
-    # Shifts & Scheduling
-    '/s/hr/shifts/': 'shifts',
-    '/s/hr/shift-attendance/': 'shifts',
-    '/s/hr/shift-schedules/': 'shifts',
-    '/s/hr/shift-overrides/': 'shifts',
+    # ========== COMPLAINT_SYSTEM ==========
+    '/s/hr/complaints/': 'COMPLAINT_SYSTEM',
+    '/s/hr/complaint-categories/': 'COMPLAINT_SYSTEM',
+    '/s/hr/client-complaints/': 'COMPLAINT_SYSTEM',
+    '/s/hr/client-complaint-statuses/': 'COMPLAINT_SYSTEM',
+    '/s/hr/ticket-thresholds/': 'COMPLAINT_SYSTEM',
+    '/s/hr/ticket-automation/': 'COMPLAINT_SYSTEM',
+    '/s/hr/team-complaints/': 'COMPLAINT_SYSTEM',
+    '/s/hr/complaint-admin-permissions/': 'COMPLAINT_SYSTEM',
+    '/s/hr/client/complaints/': 'COMPLAINT_SYSTEM',
+    '/s/hr/client/categories/': 'COMPLAINT_SYSTEM',
 
-    # Leave Management
-    '/s/hr/leave_requests/': 'leaves',
+    # ========== POS_SYSTEM ==========
+    '/s/pos/client-types/': 'POS_SYSTEM',
+    '/s/pos/clients/': 'POS_SYSTEM',
+    '/s/pos/products-old/': 'POS_SYSTEM',
+    '/s/pos/distributions/': 'POS_SYSTEM',
+    '/s/pos/dashboard/': 'POS_SYSTEM',
 
-    # Wallet System (module_key is 'wallet' singular, not 'wallets')
-    '/s/hr/wallet/': 'wallet',
-    '/s/hr/wallet-system/': 'wallet',
-    '/s/hr/multi-wallet/': 'wallet',
-    '/s/hr/wallet-transfers/': 'wallet',
-    '/s/hr/central-wallet/': 'wallet',
-    '/s/hr/reimbursements/': 'wallet',
+    # ========== BRANCH_SYSTEM ==========
+    '/s/hr/branches/': 'BRANCH_SYSTEM',
+    '/s/hr/office-locations/': 'BRANCH_SYSTEM',
+    '/s/hr/office-location/': 'BRANCH_SYSTEM',
 
-    # Tasks
-    '/s/hr/tasks/': 'tasks',
-    '/s/hr/subtasks/': 'tasks',
-    '/s/hr/task-reports/': 'tasks',
-    '/s/hr/task-comments/': 'tasks',
-    '/s/hr/manager/dashboard/': 'tasks',
+    # ========== INVENTORY_SYSTEM ==========
+    '/s/pos/inventory/': 'INVENTORY_SYSTEM',
+    '/s/pos/product-stocks/': 'INVENTORY_SYSTEM',
 
-    # Teams
-    '/s/hr/teams/': 'teams',
-    '/s/hr/team-memberships/': 'teams',
-    '/s/hr/team-tasks/': 'teams',
+    # ========== DOCUMENT_SYSTEM ==========
+    '/s/hr/documents/': 'DOCUMENT_SYSTEM',
+    '/s/hr/notes/': 'DOCUMENT_SYSTEM',
 
-    # Internal Complaints (Employee)
-    '/s/hr/complaints/': 'complaints',
+    # ========== PRODUCT_SYSTEM ==========
+    '/s/products/categories/': 'PRODUCT_SYSTEM',
+    '/s/products/units/': 'PRODUCT_SYSTEM',
+    '/s/products/products/': 'PRODUCT_SYSTEM',
+    '/s/pos/product-categories/': 'PRODUCT_SYSTEM',
+    '/s/pos/product-units/': 'PRODUCT_SYSTEM',
+    '/s/pos/category-units/': 'PRODUCT_SYSTEM',
+    '/s/pos/products/': 'PRODUCT_SYSTEM',
 
-    # Client Complaint System
-    '/s/hr/complaint-categories/': 'complaints',
-    '/s/hr/client-complaints/': 'complaints',
-    '/s/hr/client-complaint-statuses/': 'complaints',
-    '/s/hr/ticket-thresholds/': 'complaints',
-    '/s/hr/ticket-automation/': 'complaints',
-    '/s/hr/team-complaints/': 'complaints',
-    '/s/hr/complaint-admin-permissions/': 'complaints',
+    # ========== NOTIFICATION_SYSTEM ==========
+    '/s/hr/notifications/': 'NOTIFICATION_SYSTEM',
 
-    # Notifications
-    '/s/hr/notifications/': 'notifications',
+    # ========== ANALYTICS_SYSTEM ==========
+    '/s/hr/employee-dashboard-stats/': 'ANALYTICS_SYSTEM',
+    '/s/pos/dashboard/stats/': 'ANALYTICS_SYSTEM',
+
+    # ========== FINANCIAL_SYSTEM ==========
+    '/s/hr/wallet/': 'FINANCIAL_SYSTEM',
+    '/s/hr/wallet-system/': 'FINANCIAL_SYSTEM',
+    '/s/hr/multi-wallet/': 'FINANCIAL_SYSTEM',
+    '/s/hr/wallet-transfers/': 'FINANCIAL_SYSTEM',
+    '/s/hr/central-wallet/': 'FINANCIAL_SYSTEM',
+    '/s/hr/reimbursements/': 'FINANCIAL_SYSTEM',
 }
 
 
@@ -88,6 +115,11 @@ class ModuleAccessMiddleware:
         path = request.path
         
         if (path.startswith('/admin/') or
+            path.startswith('/s/api/token/') or
+            path.startswith('/s/api/auth/') or
+            path.startswith('/s/api/tenants/') or
+            path.startswith('/s/api/modules/') or
+            path.startswith('/s/api/public/') or
             path.startswith('/s/hr/api/token/') or
             path.startswith('/s/hr/current-user/') or  # Always allow current user endpoint
             path.startswith('/s/hr/create-tenant/') or

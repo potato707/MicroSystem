@@ -22,18 +22,16 @@ def sync_adam_modules():
         print("❌ Adam tenant not found!")
         return
     
-    # Modules from config.json
+    # Modules from config.json (updated to new module system)
     enabled_modules = [
-        'attendance',
-        'complaints',
-        'employees',
-        'notifications',
-        'reports',
-        'shifts',
-        'tasks',
+        'HR_SYSTEM',
+        'TASK_SYSTEM',
+        'COMPLAINT_SYSTEM',
+        'NOTIFICATION_SYSTEM',
+        'ANALYTICS_SYSTEM',
     ]
-    
-    disabled_modules = ['wallet']
+
+    disabled_modules = ['FINANCIAL_SYSTEM', 'POS_SYSTEM', 'INVENTORY_SYSTEM', 'PRODUCT_SYSTEM']
     
     # Get all module definitions
     all_modules = ModuleDefinition.objects.all()

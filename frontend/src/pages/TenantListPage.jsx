@@ -241,7 +241,7 @@ const ModuleManagementModal = ({ tenant, onClose }) => {
   const loadModules = async () => {
     try {
       const response = await fetch(
-        `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/api/tenants/${tenant.id}/modules/`,
+        `${process.env.REACT_APP_API_URL || 'http://localhost:8000'}/s/api/tenants/${tenant.id}/modules/`,
         {
           headers: {
             'Authorization': `Bearer ${localStorage.getItem('authToken')}`,

@@ -15,16 +15,18 @@ from hr_management.tenant_models import Tenant, TenantModule
 
 # Complete module definitions with proper names
 MODULE_DEFINITIONS = {
-    'employees': 'Employee Management',
-    'attendance': 'Attendance Tracking',
-    'shifts': 'Shift Management',
-    'leaves': 'Leave Management',
-    'wallet': 'Wallet & Salary',
-    'tasks': 'Task Management',
-    'teams': 'Team Management',
-    'complaints': 'Complaint System',
-    'reports': 'Reports & Analytics',
-    'notifications': 'Notifications',
+    'HR_SYSTEM': 'HR Management System',
+    'TASK_SYSTEM': 'Task Management System',
+    'COMPLAINT_SYSTEM': 'Complaint Management System',
+    'POS_SYSTEM': 'POS Management System',
+    'BRANCH_SYSTEM': 'Branch Management System',
+    'INVENTORY_SYSTEM': 'Inventory Management System',
+    'DOCUMENT_SYSTEM': 'Document Management System',
+    'PRODUCT_SYSTEM': 'Product Management System',
+    'NOTIFICATION_SYSTEM': 'Notification System',
+    'ANALYTICS_SYSTEM': 'Analytics & Reporting System',
+    'SETTINGS_SYSTEM': 'Settings & Configuration System',
+    'FINANCIAL_SYSTEM': 'Financial Management System',
 }
 
 def sync_tenant_modules(tenant_subdomain):

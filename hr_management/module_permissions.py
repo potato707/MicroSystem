@@ -6,69 +6,67 @@ Each ViewSet is assigned a module_key that must be enabled for the tenant
 to access that API.
 
 Module Keys (from ModuleDefinition):
-- employees: Employee Management
-- attendance: Attendance Tracking
-- shifts: Shift Management
-- leaves: Leave Management
-- wallets: Wallet & Salary System
-- tasks: Task Management
-- teams: Team Management
-- complaints: Client Complaint System
-- reimbursements: Reimbursement System
-- scheduling: Shift Scheduling
+- HR_SYSTEM: HR Management System (employees, attendance, shifts, leaves)
+- TASK_SYSTEM: Task Management System (tasks, teams)
+- COMPLAINT_SYSTEM: Complaint Management System
+- POS_SYSTEM: POS Management System
+- BRANCH_SYSTEM: Branch Management System
+- INVENTORY_SYSTEM: Inventory Management System
+- DOCUMENT_SYSTEM: Document Management System
+- PRODUCT_SYSTEM: Product Management System
+- NOTIFICATION_SYSTEM: Notification System
+- ANALYTICS_SYSTEM: Analytics & Reporting System
+- SETTINGS_SYSTEM: Settings & Configuration System
+- FINANCIAL_SYSTEM: Financial Management System (wallets, reimbursements)
 """
 
 # Map ViewSet class names to module keys
 VIEWSET_MODULE_MAP = {
-    # Employee Management Module
-    'EmployeeViewSet': 'employees',
-    'EmployeeDocumentViewSet': 'employees',
-    'EmployeeNoteViewSet': 'employees',
-    
-    # Attendance Module
-    'EmployeeAttendanceViewSet': 'attendance',
-    'AttendanceStatsView': 'attendance',
-    
-    # Shift Management Module
-    'WorkShiftViewSet': 'shifts',
-    'ShiftAttendanceViewSet': 'shifts',
-    'WeeklyShiftScheduleViewSet': 'scheduling',
-    'ShiftOverrideViewSet': 'scheduling',
-    
-    # Leave Management Module
-    'LeaveRequestViewSet': 'leaves',
-    
-    # Wallet & Salary Module
-    'WalletViewSet': 'wallets',
-    'WalletTransactionViewSet': 'wallets',
-    'EmployeeWalletSystemViewSet': 'wallets',
-    'MultiWalletTransactionViewSet': 'wallets',
-    'WalletTransferViewSet': 'wallets',
-    
-    # Reimbursement Module
-    'ReimbursementRequestViewSet': 'reimbursements',
-    
-    # Task Management Module
-    'TaskViewSet': 'tasks',
-    'SubtaskViewSet': 'tasks',
-    'TaskReportViewSet': 'tasks',
-    'TaskCommentViewSet': 'tasks',
-    
-    # Team Management Module
-    'TeamViewSet': 'teams',
-    'TeamMembershipViewSet': 'teams',
-    'TeamTaskViewSet': 'teams',
-    
-    # Client Complaint System Module
-    'ComplaintCategoryViewSet': 'complaints',
-    'ClientComplaintViewSet': 'complaints',
-    'ClientComplaintStatusViewSet': 'complaints',
-    'ClientComplaintCommentViewSet': 'complaints',
-    'ClientComplaintTaskViewSet': 'complaints',
-    'TicketDelayThresholdViewSet': 'complaints',
-    
-    # Office Location (usually always enabled)
-    'OfficeLocationViewSet': None,  # No module restriction
+    # HR_SYSTEM - Employee Management, Attendance, Shifts, Leaves
+    'EmployeeViewSet': 'HR_SYSTEM',
+    'EmployeeAttendanceViewSet': 'HR_SYSTEM',
+    'AttendanceStatsView': 'HR_SYSTEM',
+    'WorkShiftViewSet': 'HR_SYSTEM',
+    'ShiftAttendanceViewSet': 'HR_SYSTEM',
+    'WeeklyShiftScheduleViewSet': 'HR_SYSTEM',
+    'ShiftOverrideViewSet': 'HR_SYSTEM',
+    'LeaveRequestViewSet': 'HR_SYSTEM',
+
+    # TASK_SYSTEM - Tasks and Teams
+    'TaskViewSet': 'TASK_SYSTEM',
+    'SubtaskViewSet': 'TASK_SYSTEM',
+    'TaskReportViewSet': 'TASK_SYSTEM',
+    'TaskCommentViewSet': 'TASK_SYSTEM',
+    'TeamViewSet': 'TASK_SYSTEM',
+    'TeamMembershipViewSet': 'TASK_SYSTEM',
+    'TeamTaskViewSet': 'TASK_SYSTEM',
+
+    # COMPLAINT_SYSTEM - Client Complaints
+    'ComplaintCategoryViewSet': 'COMPLAINT_SYSTEM',
+    'ClientComplaintViewSet': 'COMPLAINT_SYSTEM',
+    'ClientComplaintStatusViewSet': 'COMPLAINT_SYSTEM',
+    'ClientComplaintCommentViewSet': 'COMPLAINT_SYSTEM',
+    'ClientComplaintTaskViewSet': 'COMPLAINT_SYSTEM',
+    'TicketDelayThresholdViewSet': 'COMPLAINT_SYSTEM',
+
+    # DOCUMENT_SYSTEM - Documents and Notes
+    'EmployeeDocumentViewSet': 'DOCUMENT_SYSTEM',
+    'EmployeeNoteViewSet': 'DOCUMENT_SYSTEM',
+
+    # FINANCIAL_SYSTEM - Wallets and Reimbursements
+    'WalletViewSet': 'FINANCIAL_SYSTEM',
+    'WalletTransactionViewSet': 'FINANCIAL_SYSTEM',
+    'EmployeeWalletSystemViewSet': 'FINANCIAL_SYSTEM',
+    'MultiWalletTransactionViewSet': 'FINANCIAL_SYSTEM',
+    'WalletTransferViewSet': 'FINANCIAL_SYSTEM',
+    'ReimbursementRequestViewSet': 'FINANCIAL_SYSTEM',
+
+    # BRANCH_SYSTEM - Office Locations and Branches
+    'OfficeLocationViewSet': 'BRANCH_SYSTEM',
+    'BranchViewSet': 'BRANCH_SYSTEM',
+
+    # NOTIFICATION_SYSTEM
+    'NotificationViewSet': 'NOTIFICATION_SYSTEM',
 }
 
 

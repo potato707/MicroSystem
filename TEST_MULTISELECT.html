@@ -218,7 +218,7 @@
         async function loadTenants() {
             log('بدء تحميل العملاء...');
             try {
-                const response = await fetch('/api/tenants/', { credentials: 'include' });
+                const response = await fetch('/s/api/tenants/', { credentials: 'include' });
                 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
