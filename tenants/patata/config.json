@@ -1,0 +1,27 @@
+{
+  "name": "بطاطا",
+  "domain": "patata.myapp.com",
+  "subdomain": "patata",
+  "modules": {
+    "attendance": true,
+    "complaints": true,
+    "employees": true,
+    "notifications": true,
+    "reports": true,
+    "shifts": true,
+    "tasks": true,
+    "wallet": true
+  },
+  "theme": {
+    "primary": "#3498db",
+    "secondary": "#2ecc71"
+  },
+  "logo_url": null,
+  "contact": {
+    "email": null,
+    "phone": null
+  },
+  "is_active": true,
+  "created_at": "2025-10-29T13:55:25.946666+00:00",
+  "updated_at": "2025-10-29T13:55:33.376441+00:00"
+}

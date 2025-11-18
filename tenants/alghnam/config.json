@@ -1,0 +1,28 @@
+{
+  "name": "الغنام العقارية",
+  "domain": "alghnam.myapp.com",
+  "subdomain": "alghnam",
+  "modules": {
+    "attendance": true,
+    "complaints": true,
+    "employees": true,
+    "notifications": true,
+    "reports": true,
+    "shifts": true,
+    "tasks": true,
+    "teams": true,
+    "wallet": true
+  },
+  "theme": {
+    "primary": "#3498db",
+    "secondary": "#2ecc71"
+  },
+  "logo_url": null,
+  "contact": {
+    "email": null,
+    "phone": null
+  },
+  "is_active": true,
+  "created_at": "2025-10-29T14:50:49.443691+00:00",
+  "updated_at": "2025-10-29T15:57:27.683469+00:00"
+}

@@ -1,0 +1,27 @@
+{
+  "name": "التحكم التقني",
+  "domain": "tc.myapp.com",
+  "subdomain": "tc",
+  "modules": {
+    "attendance": true,
+    "complaints": true,
+    "employees": true,
+    "notifications": true,
+    "reports": true,
+    "shifts": true,
+    "tasks": true,
+    "wallet": true
+  },
+  "theme": {
+    "primary": "#3498db",
+    "secondary": "#2ecc71"
+  },
+  "logo_url": null,
+  "contact": {
+    "email": null,
+    "phone": null
+  },
+  "is_active": true,
+  "created_at": "2025-11-04T17:19:50.020451+00:00",
+  "updated_at": "2025-11-04T17:20:00.730477+00:00"
+}

@@ -56,6 +56,7 @@ CORS_ALLOW_HEADERS = [
     'x-csrftoken',
     'x-requested-with',
     'x-tenant-subdomain',  # Custom tenant header
+    'x-requested-from',
 ]
 
 # Expose headers to frontend
