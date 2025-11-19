@@ -542,37 +542,70 @@ def get_tenant_config_by_subdomain(request, subdomain):
 def get_tenant_config_by_domain(request):
     """
     Public endpoint to get tenant configuration by domain from request
-    Useful for subdomain-based routing
-    
+    Supports both subdomain-based and custom domain routing
+
     GET /api/public/tenant-config/
+
+    Priority order:
+    1. X-Requested-From header (custom domains like ا.ws, newtestdomain.ipv64.de)
+    2. X-Tenant-Subdomain header (subdomains like demo.client-radar.org)
+    3. Host header fallback
     """
-    # Get domain from request
-    host = request.get_host()
-    
-    # Try to find tenant by custom domain or subdomain
+    tenant = None
+
+    # PRIORITY 1: Check X-Requested-From header (custom domains)
+    requested_from = request.headers.get('X-Requested-From')
+    if requested_from:
+        # Try to find tenant by custom domain
+        tenant = Tenant.objects.filter(
+            custom_domain=requested_from,
+            is_active=True
+        ).first()
+
+        if tenant:
+            config_data = tenant.generate_config_json()
+            serializer = TenantConfigSerializer(config_data)
+            return Response(serializer.data)
+
+    # PRIORITY 2: Check X-Tenant-Subdomain header
+    subdomain_header = request.headers.get('X-Tenant-Subdomain')
+    if subdomain_header:
+        tenant = Tenant.objects.filter(
+            subdomain=subdomain_header,
+            is_active=True
+        ).first()
+
+        if tenant:
+            config_data = tenant.generate_config_json()
+            serializer = TenantConfigSerializer(config_data)
+            return Response(serializer.data)
+
+    # PRIORITY 3: Fallback to Host header
     try:
+        host = request.get_host().split(':')[0]  # Remove port if present
+
         # Try custom domain first
         tenant = Tenant.objects.filter(
             custom_domain=host,
             is_active=True
         ).first()
-        
+
         # If not found, try to extract subdomain
         if not tenant:
             subdomain = host.split('.')[0]
-            tenant = Tenant.objects.get(
+            tenant = Tenant.objects.filter(
                 subdomain=subdomain,
                 is_active=True
-            )
-        
+            ).first()
+
         if tenant:
             config_data = tenant.generate_config_json()
             serializer = TenantConfigSerializer(config_data)
             return Response(serializer.data)
-    
+
     except (Tenant.DoesNotExist, IndexError):
         pass
-    
+
     return Response(
         {'error': 'Tenant not found for this domain'},
         status=status.HTTP_404_NOT_FOUND

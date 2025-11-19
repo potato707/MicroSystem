@@ -250,7 +250,7 @@ urlpatterns = [
     path("client-complaints/<uuid:complaint_id>/generate-link/", GenerateClientAccessLinkView.as_view(), name="generate-client-access-link"),
     path("client-complaints/<uuid:complaint_id>/replies/", ClientRepliesListView.as_view(), name="client-replies-list"),
     path("client-replies/<uuid:reply_id>/respond/", AdminRespondToClientReplyView.as_view(), name="admin-respond-to-client-reply"),
-    
+
     # Router URLs - these come last so specific patterns above take precedence
     path('', include(router.urls)),
 ]

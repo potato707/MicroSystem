@@ -1202,7 +1202,7 @@ async function doLogin(e) {
   const password = document.getElementById('login_pass').value;
   const errorDiv = document.getElementById('loginError');
   errorDiv.style.display = 'none';
-  const res = await fetch('/api/token/', {
+  const res = await fetch('/s/api/token/', {
     method: 'POST',
     headers: {'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest'},
     body: JSON.stringify({username, password})

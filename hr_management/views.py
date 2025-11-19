@@ -30,15 +30,15 @@ from rest_framework import status as rest_status  # Explicit import to avoid con
 from .custom_permissions import IsEmployer, IsAdminOrComplaintAdmin, HasModuleAccess
 from .models import (
     Branch, EmployeeBranch, DailySchedule,  # Branch, EmployeeBranch and DailySchedule models
-    Employee, EmployeeDocument, EmployeeNote, EmployeeAttendance, WorkShift, 
-    LeaveRequest, Complaint, ComplaintReply, ComplaintAttachment, Wallet, WalletTransaction, 
-    ReimbursementRequest, Task, Subtask, TaskReport, TaskComment, Team, TeamMembership, 
+    Employee, EmployeeDocument, EmployeeNote, EmployeeAttendance, WorkShift,
+    LeaveRequest, Complaint, ComplaintReply, ComplaintAttachment, Wallet, WalletTransaction,
+    ReimbursementRequest, Task, Subtask, TaskReport, TaskComment, Team, TeamMembership,
     TeamTask, OfficeLocation, ShareableTaskLink,  # Added ShareableTaskLink
     # Multi-wallet models
-    EmployeeWalletSystem, MainWallet, ReimbursementWallet, AdvanceWallet, 
+    EmployeeWalletSystem, MainWallet, ReimbursementWallet, AdvanceWallet,
     MultiWalletTransaction, WalletTransfer,
     # Client Complaint System models
-    ComplaintCategory, ClientComplaint, ClientComplaintAttachment, 
+    ComplaintCategory, ClientComplaint, ClientComplaintAttachment,
     ClientComplaintAssignment, ClientComplaintEmployeeAssignment, ClientComplaintTask, ClientComplaintComment,
     ClientComplaintStatusHistory, ClientComplaintAccessToken, ClientComplaintReply,
     ClientComplaintStatus, TeamComplaintAdminPermission, EmployeeComplaintAdminPermission,
@@ -54,14 +54,14 @@ from .models import (
 )
 from .serializers import (
     BranchSerializer, EmployeeBranchSerializer, DailyScheduleSerializer,  # Branch, EmployeeBranch and DailySchedule serializers
-    EmployeeSerializer, EmployeeDocumentSerializer, EmployeeNoteSerializer, 
-    EmployeeAttendanceSerializer, WorkShiftSerializer, LeaveRequestSerializer, 
-    LeaveRequestReviewSerializer, ComplaintSerializer, ComplaintReplySerializer, 
-    WalletSerializer, WalletTransactionSerializer, CentralWalletSerializer, 
-    CentralWalletTransactionSerializer, ReimbursementAttachmentSerializer, 
-    ReimbursementRequestSerializer, ReimbursementReviewSerializer, TaskSerializer, 
-    TaskCreateSerializer, TaskUpdateSerializer, SubtaskSerializer, TaskReportSerializer, 
-    TaskCommentSerializer, ManagerTaskDashboardSerializer, TeamSerializer, 
+    EmployeeSerializer, EmployeeDocumentSerializer, EmployeeNoteSerializer,
+    EmployeeAttendanceSerializer, WorkShiftSerializer, LeaveRequestSerializer,
+    LeaveRequestReviewSerializer, ComplaintSerializer, ComplaintReplySerializer,
+    WalletSerializer, WalletTransactionSerializer, CentralWalletSerializer,
+    CentralWalletTransactionSerializer, ReimbursementAttachmentSerializer,
+    ReimbursementRequestSerializer, ReimbursementReviewSerializer, TaskSerializer,
+    TaskCreateSerializer, TaskUpdateSerializer, SubtaskSerializer, TaskReportSerializer,
+    TaskCommentSerializer, ManagerTaskDashboardSerializer, TeamSerializer,
     TeamCreateSerializer, TeamMembershipSerializer, TeamTaskSerializer, OfficeLocationSerializer,
     ShareableTaskLinkSerializer, SharedTaskDetailSerializer,  # Added task sharing serializers
     # Multi-wallet serializers
@@ -69,7 +69,7 @@ from .serializers import (
     # Client Complaint System serializers
     ComplaintCategorySerializer, ClientComplaintSerializer, ClientComplaintSubmissionSerializer,
     ClientComplaintStatusSerializer, ClientComplaintStatusUpdateSerializer,
-    ClientComplaintAttachmentSerializer, ClientComplaintCommentSerializer, 
+    ClientComplaintAttachmentSerializer, ClientComplaintCommentSerializer,
     ClientComplaintStatusHistorySerializer, ClientComplaintAssignmentSerializer,
     ClientComplaintEmployeeAssignmentSerializer, ClientComplaintTaskSerializer, ClientPortalComplaintSerializer, ClientComplaintReplySerializer,
     ClientComplaintReplyCreateSerializer, ClientComplaintAccessTokenSerializer,
@@ -5911,7 +5911,7 @@ class LocationTrackingEventsView(APIView):
             serializer = LocationTrackingEventSerializer(events, many=True)
             
             return Response(serializer.data, status=200)
-            
+
         except Exception as e:
             import traceback
             traceback.print_exc()
